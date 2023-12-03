@@ -1,12 +1,14 @@
 #include "Wire.h"
-#include <Crypto.h>
+#include <Arduino.h>
 #include <AES.h>
+#include <base64.h>
 #include <Base64.h>
 #include <ArduinoJson.h>
 #include "BluetoothSerial.h"
 
 #define MPU_ADDR 0x68
-DynamicJsonDocument doc(200);
+DynamicJsonDocument doc(400);
+DynamicJsonDocument doc_d(400);
 
 #if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
 #error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
@@ -47,46 +49,74 @@ void setup() {
   delay(20);
   */
   // Call this function if you need to get the IMU error values for your module
-  calculate_IMU_error();
+  // calculate_IMU_error();
   SerialBT.begin("ESP32test");  //Bluetooth device name
   Serial.println("Bluetooth telah dihidupkan!");
 
   delay(20);
 }
 
-String encryptField(float value, const char* key) {
-  // Convert float value to a string
-  String stringValue = String(value, 2);  // 2 decimal places for example
-
-  // Pad the data to meet AES block size requirements (optional but recommended)
-  int padding = 16 - (stringValue.length() % 16);
-  stringValue += String(padding, ' ');
-
-  // Convert the key to bytes
-  byte keyBytes[16];
-  strncpy((char*)keyBytes, key, 16);
-
-  // Generate a random IV (Initialization Vector)
-  byte iv[16];
-  for (int i = 0; i < 16; i++) {
-    iv[i] = 0;  // You might want to use a secure random generator for a real application
+String decryptField(String encryptedHexString, uint8_t *key, uint8_t *iv) {
+  // Convert hexadecimal string to binary data
+  int encryptedDataLen = encryptedHexString.length() / 2;
+  byte encryptedData[encryptedDataLen];
+  for (int i = 0; i < encryptedDataLen; i++) {
+    char hexBuffer[3];
+    encryptedHexString.substring(2 * i, 2 * i + 2).toCharArray(hexBuffer, 3);
+    encryptedData[i] = strtol(hexBuffer, NULL, 16);
   }
 
-  // Create an AES cipher object
-  AES256 aes;
-  aes.setKey(keyBytes, 16);
-  aes.setIV(iv, 16);
+  // Decryption
+  AES aes;
+  aes.set_key(key, 16);
 
-  // Encrypt the data
-  byte encryptedData[stringValue.length()];
-  aes.encryptBlock((byte*)stringValue.c_str(), encryptedData, stringValue.length());
+  byte decryptedData[encryptedDataLen];
+  aes.do_aes_decrypt(encryptedData, encryptedDataLen, decryptedData, key, 128, iv);
 
-  // Base64 encode the encrypted data for easy transmission
-  char encodedData[Base64.encodedLength(stringValue.length())];
-  Base64.encode(encodedData, encryptedData, stringValue.length());
+  // Convert binary data to string
+  char decryptedCharArray[sizeof(float) + 1];
+  memcpy(decryptedCharArray, decryptedData, sizeof(float));
+  decryptedCharArray[sizeof(float)] = '\0';
 
-  return String(encodedData);
+  // Convert char array to String
+  String decryptedString = String(decryptedCharArray);
+
+  return decryptedString;
 }
+
+String encryptField(float input, uint8_t *key, uint8_t *iv) {
+  // Padding
+  int paddedInputLen = sizeof(float);
+  char *paddedInput = (char *)malloc(paddedInputLen);
+
+  if (!paddedInput) {
+    Serial.println("Failed to allocate memory");
+    return "";
+  }
+
+  memcpy(paddedInput, &input, sizeof(float));
+
+  // Encryption
+  AES aes;
+  aes.set_key(key, 16);
+
+  byte encryptedData[paddedInputLen];
+  aes.do_aes_encrypt((byte *)paddedInput, paddedInputLen, encryptedData, key, 128, iv);
+
+  // Convert binary data to hexadecimal string
+  String encryptedHexString = "";
+  for (int i = 0; i < paddedInputLen; i++) {
+    char hexBuffer[3];
+    sprintf(hexBuffer, "%02X", encryptedData[i]);
+    encryptedHexString += hexBuffer;
+  }
+
+  // Clean up allocated memory
+  free(paddedInput);
+
+  return encryptedHexString;
+}
+
 
 void loop() {
   // === Read acceleromter data === //
@@ -105,12 +135,12 @@ void loop() {
   // // Calculating Roll and Pitch from the accelerometer data
   // accAngleX = (atan(AccY / sqrt(pow(AccX, 2) + pow(AccZ, 2))) * 180 / PI) - 0.58; // AccErrorX ~(0.58) See the calculate_IMU_error()custom function for more details
   // accAngleY = (atan(-1 * AccX / sqrt(pow(AccY, 2) + pow(AccZ, 2))) * 180 / PI) + 1.58; // AccErrorY ~(-1.58)
-  pitch = -(atan2(NormAccX, sqrt(NormAccY * NormAccY + NormAccZ * NormAccZ)) * 180.0) / M_PI + 3.85;  //error -3.85
-  roll = (atan2(NormAccY, NormAccZ) * 180.0) / M_PI - 0.75;                                           // error +0.75
+  // pitch = -(atan2(NormAccX, sqrt(NormAccY * NormAccY + NormAccZ * NormAccZ)) * 180.0) / M_PI + 3.85;  //error -3.85
+  // roll = (atan2(NormAccY, NormAccZ) * 180.0) / M_PI - 0.75;                                           // error +0.75
   // === Read gyroscope data === //
-  previousTime = currentTime;                         // Previous time is stored before the actual time read
-  currentTime = millis();                             // Current time actual time read
-  elapsedTime = (currentTime - previousTime) / 1000;  // Divide by 1000 to get seconds
+  // previousTime = currentTime;                         // Previous time is stored before the actual time read
+  // currentTime = millis();                             // Current time actual time read
+  // elapsedTime = (currentTime - previousTime) / 1000;  // Divide by 1000 to get seconds
   Wire.beginTransmission(MPU_ADDR);
   Wire.write(0x43);  // Gyro data first register address 0x43
   Wire.endTransmission(false);
@@ -123,9 +153,9 @@ void loop() {
   NormGyroY = (GyroY / 131.0) + 4.18;  // GyroErrorY ~(2)
   NormGyroZ = (GyroZ / 131.0) - 0.56;  // GyroErrorZ ~ (-0.8)
   // Currently the raw values are in degrees per seconds, deg/s, so we need to multiply by sendonds (s) to get the angle in degrees
-  gyroAngleX = gyroAngleX + GyroX * elapsedTime;  // deg/s * s = deg
-  gyroAngleY = gyroAngleY + GyroY * elapsedTime;
-  yaw = yaw + GyroZ * elapsedTime;
+  // gyroAngleX = gyroAngleX + GyroX * elapsedTime;  // deg/s * s = deg
+  // gyroAngleY = gyroAngleY + GyroY * elapsedTime;
+  // yaw = yaw + GyroZ * elapsedTime;
   // yaw masih salah
 
   // Print the values on the serial monitor
@@ -150,36 +180,49 @@ void loop() {
   Serial.println(";");
   //------PRINT TO json---------
   // Your AES encryption keys (should be kept secure)
-  const char* accEncryptionKey = "acc_key";
-  const char* gyroEncryptionKey = "gyro_key";
-  doc["accX"] = encryptField(NormAccX, accEncryptionKey);
-  doc["accY"] = encryptField(NormAccY, accEncryptionKey);
-  doc["accZ"] = encryptField(NormAccZ, accEncryptionKey);
-  doc["gyroX"] = encryptField(NormGyroX, gyroEncryptionKey);
-  doc["gyroY"] = encryptField(NormGyroY, gyroEncryptionKey);
-  doc["gyroZ"] = encryptField(NormGyroZ, gyroEncryptionKey);
+  uint8_t key[16] = {0};  // Your encryption key (16 bytes)
+  uint8_t iv[16] = {0};   // Your initialization vector (16 bytes)
 
-  String jsonString;
-  serializeJson(doc, jsonString);
-
-  Serial.println("Encrypted JSON Data:");
-  Serial.println(jsonString);
+  // encrypt_any_length_string(enc_input, (uint8_t *)enc_key, (uint8_t *)enc_iv);
+  String encryptedData =  encryptField(NormGyroZ, key, iv);
+  // doc["accX"] = encryptedData;
+  // delay(100);
+  // encryptedData = encryptField(NormAccY, key, iv);
+  // doc["accY"] = encryptedData;
+  //   delay(100);
+  // encryptedData = encryptField(NormAccZ, key, iv);
+  // doc["accZ"] = encryptedData;
+  //   delay(100);
+  // encryptedData = encryptField(NormGyroX, key, iv);
+  // doc["gyroX"] = encryptedData;
+  // delay(100);
+  // encryptedData = encryptField(NormGyroY, key, iv);
+  // doc["gyroY"] = encryptedData;
+  // delay(100);
+  // encryptedData = encryptField(NormGyroZ, key, iv);
+  doc["gyroZ"] = encryptedData;
+  String decryptedGyroZ = decryptField(encryptedData, key, iv);
+  doc_d["gyroZ"] = decryptedGyroZ;
+  serializeJson(doc, Serial);
+  Serial.println();
+  serializeJson(doc_d, Serial);
+  Serial.println();
   //------PRINT TO bluetoooth---------
-  SerialBT.print(NormAccX);
-  SerialBT.print(';');
-  SerialBT.print(NormAccY);
-  SerialBT.print(';');
-  SerialBT.print(NormAccZ);
-  SerialBT.print(';');
-  SerialBT.print(NormGyroX);
-  SerialBT.print(';');
-  SerialBT.print(NormGyroY);
-  SerialBT.print(';');
-  SerialBT.print(NormGyroZ);
-  SerialBT.print(';');
-  SerialBT.print('\n');
+  // SerialBT.print(NormAccX);
+  // SerialBT.print(';');
+  // SerialBT.print(NormAccY);
+  // SerialBT.print(';');
+  // SerialBT.print(NormAccZ);
+  // SerialBT.print(';');
+  // SerialBT.print(NormGyroX);
+  // SerialBT.print(';');
+  // SerialBT.print(NormGyroY);
+  // SerialBT.print(';');
+  // SerialBT.print(NormGyroZ);
+  // SerialBT.print(';');
+  // SerialBT.print('\n');
   //delay(10);
-  delay(1000);
+  delay(5000);
 }
 void calculate_IMU_error() {
   // We can call this funtion in the setup section to calculate the accelerometer and gyro data error. From here we will get the error values used in the above equations printed on the Serial Monitor.
