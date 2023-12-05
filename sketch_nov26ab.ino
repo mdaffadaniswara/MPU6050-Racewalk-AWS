@@ -1,20 +1,23 @@
 #include "Wire.h"
 #include <Arduino.h>
-#include <AES.h>
+#include <AESLib.h>
 #include <base64.h>
 #include <Base64.h>
 #include <ArduinoJson.h>
-#include "BluetoothSerial.h"
+// #include "BluetoothSerial.h"
 
+AESLib aesLib;
 #define MPU_ADDR 0x68
-DynamicJsonDocument doc(400);
-DynamicJsonDocument doc_d(400);
+DynamicJsonDocument doc(1024);
+DynamicJsonDocument doc_d(256);
 
 #if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
 #error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
 #endif
 
-BluetoothSerial SerialBT;
+// BluetoothSerial SerialBT;
+int ID = 01;
+unsigned long getTime;
 int16_t AccX, AccY, AccZ;
 int16_t GyroX, GyroY, GyroZ;
 float accAngleX, accAngleY, gyroAngleX, gyroAngleY, gyroAngleZ;
@@ -26,7 +29,10 @@ float NormAccX, NormAccY, NormAccZ;
 float NormGyroX, NormGyroY, NormGyroZ;
 int c = 0;
 
-char buffer[32];
+char buffer[100];
+char ciphertext[30];
+byte aes_key[] = { 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30 };
+byte aes_iv[16] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 
 void setup() {
   Serial.begin(9600);
@@ -50,71 +56,38 @@ void setup() {
   */
   // Call this function if you need to get the IMU error values for your module
   // calculate_IMU_error();
-  SerialBT.begin("ESP32test");  //Bluetooth device name
+  // SerialBT.begin("ESP32test");  //Bluetooth device name
   Serial.println("Bluetooth telah dihidupkan!");
-
+  aes_init();
   delay(20);
 }
 
-String decryptField(String encryptedHexString, uint8_t *key, uint8_t *iv) {
-  // Convert hexadecimal string to binary data
-  int encryptedDataLen = encryptedHexString.length() / 2;
-  byte encryptedData[encryptedDataLen];
-  for (int i = 0; i < encryptedDataLen; i++) {
-    char hexBuffer[3];
-    encryptedHexString.substring(2 * i, 2 * i + 2).toCharArray(hexBuffer, 3);
-    encryptedData[i] = strtol(hexBuffer, NULL, 16);
-  }
-
-  // Decryption
-  AES aes;
-  aes.set_key(key, 16);
-
-  byte decryptedData[encryptedDataLen];
-  aes.do_aes_decrypt(encryptedData, encryptedDataLen, decryptedData, key, 128, iv);
-
-  // Convert binary data to string
-  char decryptedCharArray[sizeof(float) + 1];
-  memcpy(decryptedCharArray, decryptedData, sizeof(float));
-  decryptedCharArray[sizeof(float)] = '\0';
-
-  // Convert char array to String
-  String decryptedString = String(decryptedCharArray);
-
-  return decryptedString;
+void aes_init() {
+  aesLib.gen_iv(aes_iv);
+  aesLib.set_paddingmode((paddingMode)2);  //ZeroLength
+  // encrypt("AAAAAAAAAA", aes_iv); // workaround for incorrect B64 functionality on first run... initing b64 is not enough
 }
 
-String encryptField(float input, uint8_t *key, uint8_t *iv) {
-  // Padding
-  int paddedInputLen = sizeof(float);
-  char *paddedInput = (char *)malloc(paddedInputLen);
+String encrypt(char* msg, byte iv[]) {
+  // unsigned long ms = micros();
+  int msgLen = strlen(msg);
+  char encrypted[2 * msgLen];
+  aesLib.encrypt64((byte*)msg, msgLen, encrypted, aes_key, sizeof(aes_key), iv);
+  // Serial.print("Encryption took: ");
+  // Serial.print(micros() - ms);
+  // Serial.println("us");
+  return String(encrypted);
+}
 
-  if (!paddedInput) {
-    Serial.println("Failed to allocate memory");
-    return "";
-  }
-
-  memcpy(paddedInput, &input, sizeof(float));
-
-  // Encryption
-  AES aes;
-  aes.set_key(key, 16);
-
-  byte encryptedData[paddedInputLen];
-  aes.do_aes_encrypt((byte *)paddedInput, paddedInputLen, encryptedData, key, 128, iv);
-
-  // Convert binary data to hexadecimal string
-  String encryptedHexString = "";
-  for (int i = 0; i < paddedInputLen; i++) {
-    char hexBuffer[3];
-    sprintf(hexBuffer, "%02X", encryptedData[i]);
-    encryptedHexString += hexBuffer;
-  }
-
-  // Clean up allocated memory
-  free(paddedInput);
-
-  return encryptedHexString;
+String decrypt(char* msg, byte iv[]) {
+  // unsigned long ms = micros();
+  int msgLen = strlen(msg);
+  char decrypted[msgLen];  // half may be enough
+  aesLib.decrypt64(msg, msgLen, (byte*)decrypted, aes_key, sizeof(aes_key), iv);
+  // Serial.print("Decryption [2] took: ");
+  // Serial.print(micros() - ms);
+  // Serial.println("us");
+  return String(decrypted);
 }
 
 
@@ -157,15 +130,20 @@ void loop() {
   // gyroAngleY = gyroAngleY + GyroY * elapsedTime;
   // yaw = yaw + GyroZ * elapsedTime;
   // yaw masih salah
+  // Ambil waktu pengukuran
+  getTime = millis();
+  unsigned long seconds = getTime / 1000;
+  unsigned long minutes = seconds / 60;
+  unsigned long hours = minutes / 60;
+  seconds %= 60;
+  minutes %= 60;
+  String getTime_str = String(hours) + ":" + String(minutes) + ":" + String(seconds);
 
-  // Print the values on the serial monitor
-  // Serial.print("Pitch : ");
-  // Serial.print(pitch);
-  // Serial.print(" Roll : ");
-  // Serial.print(roll);
-  // Serial.print(" Yaw: ");
-  // Serial.println(yaw);
   //------PRINT TO SERIAL----------
+  Serial.print(ID);
+  Serial.print(";");
+  Serial.print(getTime_str);
+  Serial.print(";");
   Serial.print(NormAccX);
   Serial.print(";");
   Serial.print(NormAccY);
@@ -180,29 +158,66 @@ void loop() {
   Serial.println(";");
   //------PRINT TO json---------
   // Your AES encryption keys (should be kept secure)
-  uint8_t key[16] = {0};  // Your encryption key (16 bytes)
-  uint8_t iv[16] = {0};   // Your initialization vector (16 bytes)
-
   // encrypt_any_length_string(enc_input, (uint8_t *)enc_key, (uint8_t *)enc_iv);
-  String encryptedData =  encryptField(NormGyroZ, key, iv);
-  // doc["accX"] = encryptedData;
-  // delay(100);
-  // encryptedData = encryptField(NormAccY, key, iv);
-  // doc["accY"] = encryptedData;
-  //   delay(100);
-  // encryptedData = encryptField(NormAccZ, key, iv);
-  // doc["accZ"] = encryptedData;
-  //   delay(100);
-  // encryptedData = encryptField(NormGyroX, key, iv);
-  // doc["gyroX"] = encryptedData;
-  // delay(100);
-  // encryptedData = encryptField(NormGyroY, key, iv);
-  // doc["gyroY"] = encryptedData;
-  // delay(100);
-  // encryptedData = encryptField(NormGyroZ, key, iv);
+  byte enc_iv[16] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };  // iv_block gets written to, reqires always fresh copy.
+  byte dec_iv[16] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };  // iv_block gets written to, requires always fresh copy.
+  
+  sprintf(buffer, "%d", ID);
+  String encryptedData = encrypt(buffer, enc_iv);
+  doc["ID"] = encryptedData;
+  sprintf(ciphertext, "%s", encryptedData.c_str());
+  String decryptedData = decrypt(ciphertext, dec_iv);
+  doc_d["ID"] = decryptedData;
+
+  sprintf(buffer, "%s", getTime_str);
+  encryptedData = encrypt(buffer, enc_iv);
+  doc["time"] = encryptedData;
+  sprintf(ciphertext, "%s", encryptedData.c_str());
+  decryptedData = decrypt(ciphertext, dec_iv);
+  doc_d["time"] = decryptedData;
+
+  sprintf(buffer, "%.2f", NormAccX);
+  encryptedData = encrypt(buffer, enc_iv);
+  doc["accX"] = encryptedData;
+  sprintf(ciphertext, "%s", encryptedData.c_str());
+  decryptedData = decrypt(ciphertext, dec_iv);
+  doc_d["accX"] = decryptedData;
+
+  sprintf(buffer, "%.2f", NormAccY);
+  encryptedData = encrypt(buffer, enc_iv);
+  doc["accY"] = encryptedData;
+  sprintf(ciphertext, "%s", encryptedData.c_str());
+  decryptedData = decrypt(ciphertext, dec_iv);
+  doc_d["accY"] = decryptedData;
+  
+  sprintf(buffer, "%.2f", NormAccZ);
+  encryptedData = encrypt(buffer, enc_iv);
+  doc["accZ"] = encryptedData;
+  sprintf(ciphertext, "%s", encryptedData.c_str());
+  decryptedData = decrypt(ciphertext, dec_iv);
+  doc_d["accZ"] = decryptedData;
+
+  sprintf(buffer, "%.2f", NormGyroX);
+  encryptedData = encrypt(buffer, enc_iv);
+  doc["gyroX"] = encryptedData;
+  sprintf(ciphertext, "%s", encryptedData.c_str());
+  decryptedData = decrypt(ciphertext, dec_iv);
+  doc_d["gyroX"] = decryptedData;
+
+  sprintf(buffer, "%.2f", NormGyroY);
+  encryptedData = encrypt(buffer, enc_iv);
+  doc["gyroY"] = encryptedData;
+  sprintf(ciphertext, "%s", encryptedData.c_str());
+  decryptedData = decrypt(ciphertext, dec_iv);
+  doc_d["gyroY"] = decryptedData;
+
+  sprintf(buffer, "%.2f", NormGyroZ);
+  encryptedData = encrypt(buffer, enc_iv);
   doc["gyroZ"] = encryptedData;
-  String decryptedGyroZ = decryptField(encryptedData, key, iv);
-  doc_d["gyroZ"] = decryptedGyroZ;
+  sprintf(ciphertext, "%s", encryptedData.c_str());
+  decryptedData = decrypt(ciphertext, dec_iv);
+  doc_d["gyroZ"] = decryptedData;
+
   serializeJson(doc, Serial);
   Serial.println();
   serializeJson(doc_d, Serial);
