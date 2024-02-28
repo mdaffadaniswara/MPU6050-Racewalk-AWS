@@ -2,7 +2,9 @@
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
-#include "WiFi.h"
+#include <WiFi.h>
+#include <WiFiMulti.h>
+WiFiMulti wifiMulti;
 // #include <Adafruit_MPU6050.h>
 // #include <Adafruit_Sensor.h>
 #include <Wire.h>
@@ -17,6 +19,8 @@
 WiFiClientSecure net = WiFiClientSecure();
 PubSubClient client(net);
 
+uint32_t intervalMPU = 10;
+uint32_t last;
 int16_t AccX, AccY, AccZ;
 int16_t GyroX, GyroY, GyroZ;
 float NormAccX, NormAccY, NormAccZ;
@@ -42,16 +46,35 @@ void WiFiStationConnected(WiFiEvent_t event, WiFiEventInfo_t info) {
 }
 
 void WiFiStationDisconnected(WiFiEvent_t event, WiFiEventInfo_t info) {
-  Serial.println("Disconnected from WiFi access point");
-  Serial.print("WiFi lost connection. Reason: ");
-  Serial.println(info.wifi_sta_disconnected.reason);
+  // Serial.println("Disconnected from WiFi access point");
+  // Serial.print("WiFi lost connection. Reason: ");
+  // Serial.println(info.wifi_sta_disconnected.reason);
   Serial.println("Trying to Reconnect");
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  WiFi.begin(WIFI_SSID1, WIFI_PASSWORD1);
+  // wifiMulti.run();
+}
+
+void reconnectAWS() {
+  // Loop until we're reconnected
+  while (!client.connected()) {
+    Serial.println("Menghubungkan dengan AWS IOT Core");
+    // Attempt to connect
+    if (client.connect(THINGNAME)) {
+      Serial.println("Terhubung dengan AWS IoT Core");
+      client.subscribe(AWS_IOT_SUBSCRIBE_TOPIC);
+      // } else {
+      //   Serial.print("failed, rc=");
+      //   Serial.print(client.state());
+      //   Serial.println(" try again in 5 seconds");
+      //   // Wait 5 seconds before retrying
+      //   delay(5000);
+    }
+  }
 }
 
 void connectAWS() {
   // WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  // WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   Serial.println("Connecting to Wi-Fi");
 
@@ -71,22 +94,7 @@ void connectAWS() {
   // Create a message handler
   client.setCallback(messageHandler);
 
-  Serial.println("Terhubung dengan AWS IOT Core");
-  delay(100);
-  while (!client.connect(THINGNAME)) {
-    Serial.print(".");
-    delay(100);
-  }
-
-  if (!client.connected()) {
-    Serial.println("AWS IoT Timeout!");
-    return;
-  }
-
-  // Subscribe to a topic
-  client.subscribe(AWS_IOT_SUBSCRIBE_TOPIC);
-
-  Serial.println("Terhubung dengan AWS IoT Core");
+  reconnectAWS();
 }
 
 void publishMessage() {
@@ -178,166 +186,178 @@ void setup() {
     BUFFER_B[i] = 0;
   }
   delay(20);
+  WiFi.mode(WIFI_STA);
+  // wifiMulti.addAP(WIFI_SSID1, WIFI_PASSWORD1);
+  // wifiMulti.addAP(WIFI_SSID2, WIFI_PASSWORD2);
+  // wifiMulti.addAP(WIFI_SSID3, WIFI_PASSWORD3);
+
   WiFi.onEvent(WiFiStationConnected, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_CONNECTED);
   WiFi.onEvent(WiFiStationDisconnected, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+  WiFi.begin(WIFI_SSID1, WIFI_PASSWORD1);
+  // wifiMulti.run();
   connectAWS();
 }
 
 void loop() {
-  // === Read acceleromter data === //
-  Wire.beginTransmission(MPU_ADDR);
-  Wire.write(0x3B);  // Start with register 0x3B (ACCEL_XOUT_H)
-  Wire.endTransmission(false);
-  Wire.requestFrom(MPU_ADDR, 6, true);  // Read 6 registers total, each axis value is stored in 2 registers
-  //For a range of +-2g, we need to divide the raw values by 16384, according to the datasheet
-  AccX = ((Wire.read() << 8) | (Wire.read()));  // X-axis value
-  AccY = ((Wire.read() << 8) | (Wire.read()));  // Y-axis value
-  AccZ = ((Wire.read() << 8) | (Wire.read()));  // Z-axis value
-  //Normalisasi Raw Data tersebut
-  NormAccX = AccX * rangePerDigit * 9.80665f - 0.82;
-  NormAccY = AccY * rangePerDigit * 9.80665f - 0.01;
-  NormAccZ = AccZ * rangePerDigit * 9.80665f - 10.08;
-  // // Calculating Roll and Pitch from the accelerometer data
-  // accAngleX = (atan(AccY / sqrt(pow(AccX, 2) + pow(AccZ, 2))) * 180 / PI) - 0.58; // AccErrorX ~(0.58) See the calculate_IMU_error()custom function for more details
-  // accAngleY = (atan(-1 * AccX / sqrt(pow(AccY, 2) + pow(AccZ, 2))) * 180 / PI) + 1.58; // AccErrorY ~(-1.58)
-  // pitch = -(atan2(NormAccX, sqrt(NormAccY * NormAccY + NormAccZ * NormAccZ)) * 180.0) / M_PI + 3.85;  //error -3.85
-  // roll = (atan2(NormAccY, NormAccZ) * 180.0) / M_PI - 0.75;                                           // error +0.75
-  // === Read gyroscope data === //
-  // previousTime = currentTime;                         // Previous time is stored before the actual time read
-  // currentTime = millis();                             // Current time actual time read
-  // elapsedTime = (currentTime - previousTime) / 1000;  // Divide by 1000 to get seconds
-  Wire.beginTransmission(MPU_ADDR);
-  Wire.write(0x43);  // Gyro data first register address 0x43
-  Wire.endTransmission(false);
-  Wire.requestFrom(MPU_ADDR, 6, true);           // Read 4 registers total, each axis value is stored in 2 registers
-  GyroX = ((Wire.read() << 8) | (Wire.read()));  // For a 250deg/s range we have to divide first the raw value by 131.0, according to the datasheet
-  GyroY = ((Wire.read() << 8) | (Wire.read()));
-  GyroZ = ((Wire.read() << 8) | (Wire.read()));
-  // Correct the outputs with the calculated error values
-  NormGyroX = (GyroX / 131.0) + 0.49;  // GyroErrorX ~(-0.56)
-  NormGyroY = (GyroY / 131.0) + 3.90;  // GyroErrorY ~(2)
-  NormGyroZ = (GyroZ / 131.0) - 0.47;  // GyroErrorZ ~ (-0.8)
-
-  //processing data
-  if (count == 50) {
-    // if (WiFi.status() != WL_CONNECTED){
-    //   WiFi.disconnect();
-    //   WiFi.reconnect();
-    // }
-    avg_AccX = avg_AccX / 50;
-    avg_AccY = avg_AccY / 50;
-    avg_AccZ = avg_AccZ / 50;
-    avg_GyroX = avg_GyroX / 50;
-    avg_GyroY = avg_GyroY / 50;
-    avg_GyroZ = avg_GyroZ / 50;
-    stdev_AccX = get_stdev(Array_AccX, avg_AccX);
-    stdev_AccY = get_stdev(Array_AccY, avg_AccY);
-    stdev_AccZ = get_stdev(Array_AccZ, avg_AccZ);
-    stdev_GyroX = get_stdev(Array_GyroX, avg_GyroX);
-    stdev_GyroY = get_stdev(Array_GyroY, avg_GyroY);
-    stdev_GyroZ = get_stdev(Array_GyroZ, avg_GyroZ);
-    Serial.print(avg_AccX);
-    Serial.print(';');
-    Serial.print(avg_AccY);
-    Serial.print(';');
-    Serial.print(avg_AccZ);
-    Serial.print(';');
-    Serial.print(avg_GyroX);
-    Serial.print(';');
-    Serial.print(avg_GyroY);
-    Serial.print(';');
-    Serial.print(avg_GyroZ);
-    Serial.print(';');
-    Serial.print(max_AccX);
-    Serial.print(';');
-    Serial.print(max_AccY);
-    Serial.print(';');
-    Serial.print(max_AccZ);
-    Serial.print(';');
-    Serial.print(max_GyroX);
-    Serial.print(';');
-    Serial.print(max_GyroY);
-    Serial.print(';');
-    Serial.print(max_GyroZ);
-    Serial.print(';');
-    Serial.print(min_AccX);
-    Serial.print(';');
-    Serial.print(min_AccY);
-    Serial.print(';');
-    Serial.print(min_AccZ);
-    Serial.print(';');
-    Serial.print(min_GyroX);
-    Serial.print(';');
-    Serial.print(min_GyroY);
-    Serial.print(';');
-    Serial.print(min_GyroZ);
-    Serial.print(';');
-    Serial.print(stdev_AccX);
-    Serial.print(';');
-    Serial.print(stdev_AccY);
-    Serial.print(';');
-    Serial.print(stdev_AccZ);
-    Serial.print(';');
-    Serial.print(stdev_GyroX);
-    Serial.print(';');
-    Serial.print(stdev_GyroY);
-    Serial.print(';');
-    Serial.print(stdev_GyroZ);
-    Serial.println(';');
-    publishMessage();
-    client.loop();
-    count = 0;
-    avg_AccX = 0;
-    avg_AccY = 0;
-    avg_AccZ = 0;
-    avg_GyroX = 0;
-    avg_GyroY = 0;
-    avg_GyroZ = 0;
-    max_GyroZ = 0;
-    max_AccX = 0;
-    max_AccY = 0;
-    max_AccZ = 0;
-    max_GyroX = 0;
-    max_GyroY = 0;
-    max_GyroZ = 0;
-    min_AccX = 0;
-    min_AccY = 0;
-    min_AccZ = 0;
-    min_GyroX = 0;
-    min_GyroY = 0;
-    min_GyroZ = 0;
-    stdev_AccX = 0;
-    stdev_AccY = 0;
-    stdev_AccZ = 0;
-    stdev_GyroX = 0;
-    stdev_GyroY = 0;
-    stdev_GyroZ = 0;
+  if (!client.connected()) {
+    reconnectAWS();
   }
-  avg_AccX = avg_AccX + NormAccX;
-  avg_AccY = avg_AccY + NormAccY;
-  avg_AccZ = avg_AccZ + NormAccZ;
-  avg_GyroX = avg_GyroX + NormGyroX;
-  avg_GyroY = avg_GyroY + NormGyroY;
-  avg_GyroZ = avg_GyroZ + NormGyroZ;
-  max_AccX = max(max_AccX, NormAccX);
-  max_AccY = max(max_AccY, NormAccY);
-  max_AccZ = max(max_AccZ, NormAccZ);
-  max_GyroX = max(max_GyroX, NormGyroX);
-  max_GyroY = max(max_GyroY, NormGyroY);
-  max_GyroZ = max(max_GyroZ, NormGyroZ);
-  min_AccX = min(min_AccX, NormAccX);
-  min_AccY = min(min_AccY, NormAccY);
-  min_AccZ = min(min_AccZ, NormAccZ);
-  min_GyroX = min(min_GyroX, NormGyroX);
-  min_GyroY = min(min_GyroY, NormGyroY);
-  min_GyroZ = min(min_GyroZ, NormGyroZ);
-  Array_AccX[count] = NormAccX;
-  Array_AccY[count] = NormAccY;
-  Array_AccZ[count] = NormAccZ;
-  Array_GyroX[count] = NormGyroX;
-  Array_GyroY[count] = NormGyroY;
-  Array_GyroZ[count] = NormGyroZ;
-  count++;
+  if (millis() - last >= intervalMPU) {  // === Read acceleromter data === //
+    Wire.beginTransmission(MPU_ADDR);
+    Wire.write(0x3B);  // Start with register 0x3B (ACCEL_XOUT_H)
+    Wire.endTransmission(false);
+    Wire.requestFrom(MPU_ADDR, 6, true);  // Read 6 registers total, each axis value is stored in 2 registers
+    //For a range of +-2g, we need to divide the raw values by 16384, according to the datasheet
+    AccX = ((Wire.read() << 8) | (Wire.read()));  // X-axis value
+    AccY = ((Wire.read() << 8) | (Wire.read()));  // Y-axis value
+    AccZ = ((Wire.read() << 8) | (Wire.read()));  // Z-axis value
+    //Normalisasi Raw Data tersebut
+    NormAccX = AccX * rangePerDigit * 9.80665f - 0.82;
+    NormAccY = AccY * rangePerDigit * 9.80665f - 0.01;
+    NormAccZ = AccZ * rangePerDigit * 9.80665f - 10.08;
+    // // Calculating Roll and Pitch from the accelerometer data
+    // accAngleX = (atan(AccY / sqrt(pow(AccX, 2) + pow(AccZ, 2))) * 180 / PI) - 0.58; // AccErrorX ~(0.58) See the calculate_IMU_error()custom function for more details
+    // accAngleY = (atan(-1 * AccX / sqrt(pow(AccY, 2) + pow(AccZ, 2))) * 180 / PI) + 1.58; // AccErrorY ~(-1.58)
+    // pitch = -(atan2(NormAccX, sqrt(NormAccY * NormAccY + NormAccZ * NormAccZ)) * 180.0) / M_PI + 3.85;  //error -3.85
+    // roll = (atan2(NormAccY, NormAccZ) * 180.0) / M_PI - 0.75;                                           // error +0.75
+    // === Read gyroscope data === //
+    // previousTime = currentTime;                         // Previous time is stored before the actual time read
+    // currentTime = millis();                             // Current time actual time read
+    // elapsedTime = (currentTime - previousTime) / 1000;  // Divide by 1000 to get seconds
+    Wire.beginTransmission(MPU_ADDR);
+    Wire.write(0x43);  // Gyro data first register address 0x43
+    Wire.endTransmission(false);
+    Wire.requestFrom(MPU_ADDR, 6, true);           // Read 4 registers total, each axis value is stored in 2 registers
+    GyroX = ((Wire.read() << 8) | (Wire.read()));  // For a 250deg/s range we have to divide first the raw value by 131.0, according to the datasheet
+    GyroY = ((Wire.read() << 8) | (Wire.read()));
+    GyroZ = ((Wire.read() << 8) | (Wire.read()));
+    // Correct the outputs with the calculated error values
+    NormGyroX = (GyroX / 131.0) + 0.49;  // GyroErrorX ~(-0.56)
+    NormGyroY = (GyroY / 131.0) + 3.90;  // GyroErrorY ~(2)
+    NormGyroZ = (GyroZ / 131.0) - 0.47;  // GyroErrorZ ~ (-0.8)
+
+    //processing data
+    if (count == 50) {
+      // if (WiFi.status() != WL_CONNECTED){
+      //   WiFi.disconnect();
+      //   WiFi.reconnect();
+      // }
+      avg_AccX = avg_AccX / 50;
+      avg_AccY = avg_AccY / 50;
+      avg_AccZ = avg_AccZ / 50;
+      avg_GyroX = avg_GyroX / 50;
+      avg_GyroY = avg_GyroY / 50;
+      avg_GyroZ = avg_GyroZ / 50;
+      stdev_AccX = get_stdev(Array_AccX, avg_AccX);
+      stdev_AccY = get_stdev(Array_AccY, avg_AccY);
+      stdev_AccZ = get_stdev(Array_AccZ, avg_AccZ);
+      stdev_GyroX = get_stdev(Array_GyroX, avg_GyroX);
+      stdev_GyroY = get_stdev(Array_GyroY, avg_GyroY);
+      stdev_GyroZ = get_stdev(Array_GyroZ, avg_GyroZ);
+      Serial.print(avg_AccX);
+      Serial.print(';');
+      Serial.print(avg_AccY);
+      Serial.print(';');
+      Serial.print(avg_AccZ);
+      Serial.print(';');
+      Serial.print(avg_GyroX);
+      Serial.print(';');
+      Serial.print(avg_GyroY);
+      Serial.print(';');
+      Serial.print(avg_GyroZ);
+      Serial.print(';');
+      Serial.print(max_AccX);
+      Serial.print(';');
+      Serial.print(max_AccY);
+      Serial.print(';');
+      Serial.print(max_AccZ);
+      Serial.print(';');
+      Serial.print(max_GyroX);
+      Serial.print(';');
+      Serial.print(max_GyroY);
+      Serial.print(';');
+      Serial.print(max_GyroZ);
+      Serial.print(';');
+      Serial.print(min_AccX);
+      Serial.print(';');
+      Serial.print(min_AccY);
+      Serial.print(';');
+      Serial.print(min_AccZ);
+      Serial.print(';');
+      Serial.print(min_GyroX);
+      Serial.print(';');
+      Serial.print(min_GyroY);
+      Serial.print(';');
+      Serial.print(min_GyroZ);
+      Serial.print(';');
+      Serial.print(stdev_AccX);
+      Serial.print(';');
+      Serial.print(stdev_AccY);
+      Serial.print(';');
+      Serial.print(stdev_AccZ);
+      Serial.print(';');
+      Serial.print(stdev_GyroX);
+      Serial.print(';');
+      Serial.print(stdev_GyroY);
+      Serial.print(';');
+      Serial.print(stdev_GyroZ);
+      Serial.println(';');
+      publishMessage();
+      client.loop();
+      count = 0;
+      avg_AccX = 0;
+      avg_AccY = 0;
+      avg_AccZ = 0;
+      avg_GyroX = 0;
+      avg_GyroY = 0;
+      avg_GyroZ = 0;
+      max_GyroZ = 0;
+      max_AccX = 0;
+      max_AccY = 0;
+      max_AccZ = 0;
+      max_GyroX = 0;
+      max_GyroY = 0;
+      max_GyroZ = 0;
+      min_AccX = 0;
+      min_AccY = 0;
+      min_AccZ = 0;
+      min_GyroX = 0;
+      min_GyroY = 0;
+      min_GyroZ = 0;
+      stdev_AccX = 0;
+      stdev_AccY = 0;
+      stdev_AccZ = 0;
+      stdev_GyroX = 0;
+      stdev_GyroY = 0;
+      stdev_GyroZ = 0;
+    }
+    avg_AccX = avg_AccX + NormAccX;
+    avg_AccY = avg_AccY + NormAccY;
+    avg_AccZ = avg_AccZ + NormAccZ;
+    avg_GyroX = avg_GyroX + NormGyroX;
+    avg_GyroY = avg_GyroY + NormGyroY;
+    avg_GyroZ = avg_GyroZ + NormGyroZ;
+    max_AccX = max(max_AccX, NormAccX);
+    max_AccY = max(max_AccY, NormAccY);
+    max_AccZ = max(max_AccZ, NormAccZ);
+    max_GyroX = max(max_GyroX, NormGyroX);
+    max_GyroY = max(max_GyroY, NormGyroY);
+    max_GyroZ = max(max_GyroZ, NormGyroZ);
+    min_AccX = min(min_AccX, NormAccX);
+    min_AccY = min(min_AccY, NormAccY);
+    min_AccZ = min(min_AccZ, NormAccZ);
+    min_GyroX = min(min_GyroX, NormGyroX);
+    min_GyroY = min(min_GyroY, NormGyroY);
+    min_GyroZ = min(min_GyroZ, NormGyroZ);
+    Array_AccX[count] = NormAccX;
+    Array_AccY[count] = NormAccY;
+    Array_AccZ[count] = NormAccZ;
+    Array_GyroX[count] = NormGyroX;
+    Array_GyroY[count] = NormGyroY;
+    Array_GyroZ[count] = NormGyroZ;
+    count++;
+    last += intervalMPU;
+  }
 
   // float test;
   // test = filter(NormAccX, counter);
@@ -358,7 +378,7 @@ void loop() {
   // if (counter > FILTER_ORDER) {
   //   counter = 0;
   // }
-  delay(10);
+  // delay(10);
 }
 
 void calculate_IMU_error() {
