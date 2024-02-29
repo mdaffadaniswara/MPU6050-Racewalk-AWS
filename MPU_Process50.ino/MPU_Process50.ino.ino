@@ -41,6 +41,9 @@ float FILTER_COEFF_A[FILTER_ORDER + 1] = { 0.0985, 0.2956, 0.2956, 0.0985 };
 float BUFFER_A[FILTER_ORDER + 1];
 float BUFFER_B[FILTER_ORDER + 1];
 
+const int PIN_config = 18;
+uint32_t button_time, last_button;
+
 void WiFiStationConnected(WiFiEvent_t event, WiFiEventInfo_t info) {
   Serial.println("Connected to AP successfully!");
 }
@@ -52,6 +55,14 @@ void WiFiStationDisconnected(WiFiEvent_t event, WiFiEventInfo_t info) {
   Serial.println("Trying to Reconnect");
   WiFi.begin(WIFI_SSID1, WIFI_PASSWORD1);
   // wifiMulti.run();
+}
+
+void IRAM_ATTR ISR() {
+  button_time = millis();
+  if (button_time - last_button >= 500) {
+    calculate_IMU_error();
+    last_button = button_time;
+  }
 }
 
 void reconnectAWS() {
@@ -173,6 +184,10 @@ float get_stdev(float data[51], float mean) {
 void setup() {
   Serial.begin(1000000);
   client.setBufferSize(4096);
+
+  pinMode(PIN_config, INPUT_PULLUP);
+  attachInterrupt(PIN_config, ISR, FALLING);
+
   Wire.begin();                      // Initialize comunication
   Wire.beginTransmission(MPU_ADDR);  // Start communication with MPU6050 // MPU=0x68
   Wire.write(0x6B);                  // Talk to the register 6B
@@ -192,13 +207,17 @@ void setup() {
   // wifiMulti.addAP(WIFI_SSID3, WIFI_PASSWORD3);
 
   WiFi.onEvent(WiFiStationConnected, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_CONNECTED);
-  WiFi.onEvent(WiFiStationDisconnected, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+  // WiFi.onEvent(WiFiStationDisconnected, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
   WiFi.begin(WIFI_SSID1, WIFI_PASSWORD1);
   // wifiMulti.run();
   connectAWS();
 }
 
 void loop() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("Trying to Reconnect");
+    WiFi.begin(WIFI_SSID1, WIFI_PASSWORD1);
+  }
   if (!client.connected()) {
     reconnectAWS();
   }
@@ -225,9 +244,9 @@ void loop() {
     // currentTime = millis();                             // Current time actual time read
     // elapsedTime = (currentTime - previousTime) / 1000;  // Divide by 1000 to get seconds
     Wire.beginTransmission(MPU_ADDR);
-    Wire.write(0x43);  // Gyro data first register address 0x43
+    Wire.write(0x43);  // Gyro data first register address: 0x43
     Wire.endTransmission(false);
-    Wire.requestFrom(MPU_ADDR, 6, true);           // Read 4 registers total, each axis value is stored in 2 registers
+    Wire.requestFrom(MPU_ADDR, 6, true);           // Read 6 registers total, each axis value is stored in 2 registers
     GyroX = ((Wire.read() << 8) | (Wire.read()));  // For a 250deg/s range we have to divide first the raw value by 131.0, according to the datasheet
     GyroY = ((Wire.read() << 8) | (Wire.read()));
     GyroZ = ((Wire.read() << 8) | (Wire.read()));
