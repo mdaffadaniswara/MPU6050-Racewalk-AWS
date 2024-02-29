@@ -231,9 +231,9 @@ void loop() {
     AccY = ((Wire.read() << 8) | (Wire.read()));  // Y-axis value
     AccZ = ((Wire.read() << 8) | (Wire.read()));  // Z-axis value
     //Normalisasi Raw Data tersebut
-    NormAccX = AccX * rangePerDigit * 9.80665f - 0.82;
-    NormAccY = AccY * rangePerDigit * 9.80665f - 0.01;
-    NormAccZ = AccZ * rangePerDigit * 9.80665f - 10.08;
+    NormAccX = AccX * rangePerDigit * 9.80665f - AccErrorX;
+    NormAccY = AccY * rangePerDigit * 9.80665f - AccErrorY;
+    NormAccZ = AccZ * rangePerDigit * 9.80665f - AccErrorZ;
     // // Calculating Roll and Pitch from the accelerometer data
     // accAngleX = (atan(AccY / sqrt(pow(AccX, 2) + pow(AccZ, 2))) * 180 / PI) - 0.58; // AccErrorX ~(0.58) See the calculate_IMU_error()custom function for more details
     // accAngleY = (atan(-1 * AccX / sqrt(pow(AccY, 2) + pow(AccZ, 2))) * 180 / PI) + 1.58; // AccErrorY ~(-1.58)
@@ -251,9 +251,9 @@ void loop() {
     GyroY = ((Wire.read() << 8) | (Wire.read()));
     GyroZ = ((Wire.read() << 8) | (Wire.read()));
     // Correct the outputs with the calculated error values
-    NormGyroX = (GyroX / 131.0) + 0.49;  // GyroErrorX ~(-0.56)
-    NormGyroY = (GyroY / 131.0) + 3.90;  // GyroErrorY ~(2)
-    NormGyroZ = (GyroZ / 131.0) - 0.47;  // GyroErrorZ ~ (-0.8)
+    NormGyroX = (GyroX / 131.0) - GyroErrorX;  // GyroErrorX ~(-0.56)
+    NormGyroY = (GyroY / 131.0) - GyroErrorY;  // GyroErrorY ~(2)
+    NormGyroZ = (GyroZ / 131.0) - GyroErrorZ;  // GyroErrorZ ~ (-0.8)
 
     //processing data
     if (count == 50) {
