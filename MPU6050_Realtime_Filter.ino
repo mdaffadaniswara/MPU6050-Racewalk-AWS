@@ -16,40 +16,32 @@ float rangePerDigit = .00006103515625f;
 int c = 0;
 float FILTER_COEFF_A[FILTER_ORDER + 1] = { 1.0000, -0.5772, 0.4218, -0.0563 };
 float FILTER_COEFF_B[FILTER_ORDER + 1] = { 0.0985, 0.2956, 0.2956, 0.0985 };
-float BUFFER_A[FILTER_ORDER + 1];
-float BUFFER_B[FILTER_ORDER + 1];
+float BUFFER_A_acc_x[FILTER_ORDER + 1] = { 0.0 };
+float BUFFER_B_acc_x[FILTER_ORDER + 1] = { 0.0 };
+float BUFFER_A_acc_y[FILTER_ORDER + 1] = { 0.0 };
+float BUFFER_B_acc_y[FILTER_ORDER + 1] = { 0.0 };
+float BUFFER_A_acc_z[FILTER_ORDER + 1] = { 0.0 };
+float BUFFER_B_acc_z[FILTER_ORDER + 1] = { 0.0 };
+float BUFFER_A_gyro_x[FILTER_ORDER + 1] = { 0.0 };
+float BUFFER_B_gyro_x[FILTER_ORDER + 1] = { 0.0 };
+float BUFFER_A_gyro_y[FILTER_ORDER + 1] = { 0.0 };
+float BUFFER_B_gyro_y[FILTER_ORDER + 1] = { 0.0 };
+float BUFFER_A_gyro_z[FILTER_ORDER + 1] = { 0.0 };
+float BUFFER_B_gyro_z[FILTER_ORDER + 1] = { 0.0 };
 int counter = 0;
 
-float filter(float input, int counter) {
+float FILTER(float input, float buffer_b[], float buffer_a[], int counter) {
   float FILTERED_DATA;
 
-  // for (int i = FILTER_ORDER; i > 0; i--) {
-  //   // BUFFER_A[i] = BUFFER_A[i - 1];
-  //   BUFFER_B[i] = BUFFER_B[i - 1];
-  // }
-  // BUFFER_B[0] = input;
-
-  BUFFER_B[counter] = input;
+  buffer_b[counter] = input;
   FILTERED_DATA = 0;
   for (int i = 0; i <= FILTER_ORDER; i++) {
-    FILTERED_DATA = FILTERED_DATA + BUFFER_B[(FILTER_ORDER + counter - i + 1) % (FILTER_ORDER + 1)] * FILTER_COEFF_B[i];
+    FILTERED_DATA = FILTERED_DATA + buffer_b[(FILTER_ORDER + counter - i + 1) % (FILTER_ORDER + 1)] * FILTER_COEFF_B[i];
   }
   for (int i = 1; i <= FILTER_ORDER; i++) {
-    FILTERED_DATA = FILTERED_DATA - BUFFER_A[(FILTER_ORDER + counter - i + 1) % (FILTER_ORDER + 1)] * FILTER_COEFF_A[i];
+    FILTERED_DATA = FILTERED_DATA - buffer_a[(FILTER_ORDER + counter - i + 1) % (FILTER_ORDER + 1)] * FILTER_COEFF_A[i];
   }
-  BUFFER_A[counter] = FILTERED_DATA;
-
-  // for (int i = 0; i <= FILTER_ORDER; i++) {
-  //   FILTERED_DATA = FILTERED_DATA + BUFFER_B[i] * FILTER_COEFF_B[i];
-  // }
-  // for (int i = 1; i <= FILTER_ORDER; i++) {
-  //   FILTERED_DATA = FILTERED_DATA - BUFFER_A[i] * FILTER_COEFF_A[i];
-  // }
-  // for (int i = FILTER_ORDER; i > 0; i--) {
-  //   BUFFER_A[i] = BUFFER_A[i - 1];
-  //   // BUFFER_B[i] = BUFFER_B[i - 1];
-  // }
-  // BUFFER_A[0] = FILTERED_DATA;
+  buffer_a[counter] = FILTERED_DATA;
 
   return FILTERED_DATA;
 }
@@ -61,13 +53,13 @@ void setup() {
   Wire.write(0x6B);                  // Talk to the register 6B
   Wire.write(0);                     // Make reset - place a 0 into the 6B register
   Wire.endTransmission(true);        //end the transmission
-  // Call this function if you need to get the IMU error values for your module
-  // calculate_IMU_error();
-  // SerialBT.begin("ESP32test");  //Bluetooth device name
-  for (int i = 0; i <= FILTER_ORDER; i++) {
-    BUFFER_A[i] = 0;
-    BUFFER_B[i] = 0;
-  }
+                                     // Call this function if you need to get the IMU error values for your module
+                                     // calculate_IMU_error();
+                                     // SerialBT.begin("ESP32test");  //Bluetooth device name
+                                     // for (int i = 0; i <= FILTER_ORDER; i++) {
+  //   BUFFER_A[i] = 0;
+  //   BUFFER_B[i] = 0;
+  // }
   delay(20);
 }
 
@@ -108,12 +100,38 @@ void loop() {
     NormGyroY = (GyroY / 131.0) + 3.89;  // GyroErrorY ~(2)
     NormGyroZ = (GyroZ / 131.0) - 0.48;  // GyroErrorZ ~ (-0.8)
 
-    float test;
-    test = filter(NormAccX, counter);
+    float FilteredAccX, FilteredAccY, FilteredAccZ, FilteredGyroX, FilteredGyroY, FilteredGyroZ;
+    FilteredAccX = FILTER(NormAccX, BUFFER_B_acc_x, BUFFER_A_acc_x, counter);
+    FilteredAccY = FILTER(NormAccY, BUFFER_B_acc_y, BUFFER_A_acc_y, counter);
+    FilteredAccZ = FILTER(NormAccZ, BUFFER_B_acc_z, BUFFER_A_acc_z, counter);
+    FilteredGyroX = FILTER(NormGyroX, BUFFER_B_gyro_x, BUFFER_A_gyro_x, counter);
+    FilteredGyroY = FILTER(NormGyroY, BUFFER_B_gyro_y, BUFFER_A_gyro_y, counter);
+    FilteredGyroZ = FILTER(NormGyroZ, BUFFER_B_gyro_z, BUFFER_A_gyro_z, counter);
+
     // ------PRINT TO serial---------
     Serial.print(NormAccX);
     Serial.print(';');
-    Serial.print(test);
+    Serial.print(FilteredAccX);
+    Serial.println(';');
+    Serial.print(NormAccY);
+    Serial.print(';');
+    Serial.print(FilteredAccY);
+    Serial.println(';');
+    Serial.print(NormAccZ);
+    Serial.print(';');
+    Serial.print(FilteredAccZ);
+    Serial.println(';');
+    Serial.print(NormGyroX);
+    Serial.print(';');
+    Serial.print(FilteredGyroX);
+    Serial.println(';');
+    Serial.print(NormGyroY);
+    Serial.print(';');
+    Serial.print(FilteredGyroY);
+    Serial.println(';');
+    Serial.print(NormGyroZ);
+    Serial.print(';');
+    Serial.print(FilteredGyroZ);
     Serial.println(';');
     counter = counter + 1;
     if (counter > FILTER_ORDER) {
