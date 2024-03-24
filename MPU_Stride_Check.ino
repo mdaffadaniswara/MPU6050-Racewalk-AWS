@@ -26,7 +26,8 @@ int DataCount, DataProcess, DataStart = 0;
 int Start = 0;
 int StrideChange = 2;
 
-float rangePerDigit = .00006103515625f;
+float rangeAcc = .0001220703125f;
+float rangeGyro = .0152671755725191f;
 int c = 0;
 float FILTER_COEFF_A[FILTER_ORDER + 1] = { 1.0000, -0.5772, 0.4218, -0.0563 };
 float FILTER_COEFF_B[FILTER_ORDER + 1] = { 0.0985, 0.2956, 0.2956, 0.0985 };
@@ -156,18 +157,18 @@ void RESET_DATA() {
   avg_GyroY = 0;
   avg_GyroZ = 0;
   max_GyroZ = 0;
-  max_AccX = (-500.0);
-  max_AccY = (-500.0);
-  max_AccZ = (-500.0);
-  max_GyroX = (-500.0);
-  max_GyroY = (-500.0);
-  max_GyroZ = (-500.0);
-  min_AccX = 500.0;
-  min_AccY = 500.0;
-  min_AccZ = 500.0;
-  min_GyroX = 500.0;
-  min_GyroY = 500.0;
-  min_GyroZ = 500.0;
+  max_AccX = (-600.0);
+  max_AccY = (-600.0);
+  max_AccZ = (-600.0);
+  max_GyroX = (-600.0);
+  max_GyroY = (-600.0);
+  max_GyroZ = (-600.0);
+  min_AccX = 600.0;
+  min_AccY = 600.0;
+  min_AccZ = 600.0;
+  min_GyroX = 600.0;
+  min_GyroY = 600.0;
+  min_GyroZ = 600.0;
   stdev_AccX = 0;
   stdev_AccY = 0;
   stdev_AccZ = 0;
@@ -191,40 +192,50 @@ void setup() {
                                      //   BUFFER_A[i] = 0;
                                      //   BUFFER_B[i] = 0;
                                      // }
-  peakDetection.begin(36, 5, 0.6);   // sets the lag, threshold and influence
+  Wire.beginTransmission(MPU_ADDR);  // Start communication with MPU6050 // MPU=0x68
+  Wire.write(0x1B);                  // Talk to register GYRO_CONFIG
+  Wire.write(0x08);                  // Set gyroscope range +- 500 deg/s
+  Wire.endTransmission(true);        //end the transmission
+
+  Wire.beginTransmission(MPU_ADDR);  // Start communication with MPU6050 // MPU=0x68
+  Wire.write(0x1C);                  // Talk to register ACC_CONFIG
+  Wire.write(0x08);                  // Set accelerometer range +- 4g
+  Wire.endTransmission(true);        //end the transmission
+  // peakDetection.begin(36, 5, 0.6);   // sets the lag, threshold and influence
   //change the threshold
   delay(20);
-  // calculate_IMU_error();
+  calculate_IMU_error();
 }
 
+// void loop(){}
 void loop() {
-  if (millis() - last >= intervalMPU) {  // === Read acceleromter data === //
-
+  if (millis() - last >= intervalMPU) {
     // === Read acceleromter data === //
     Wire.beginTransmission(MPU_ADDR);
     Wire.write(0x3B);  // Start with register 0x3B (ACCEL_XOUT_H)
     Wire.endTransmission(false);
     Wire.requestFrom(MPU_ADDR, 6, true);  // Read 6 registers total, each axis value is stored in 2 registers
-    //For a range of +-2g, we need to divide the raw values by 16384, according to the datasheet
+    //For a range of +-4g, we need to divide the raw values by 8192, according to the datasheet
     AccX = ((Wire.read() << 8) | (Wire.read()));  // X-axis value
     AccY = ((Wire.read() << 8) | (Wire.read()));  // Y-axis value
     AccZ = ((Wire.read() << 8) | (Wire.read()));  // Z-axis value
     //Normalisasi Raw Data tersebut  Ref: 9.73
-    NormAccX = AccX * rangePerDigit * 9.80665f - 0.53;
-    NormAccY = AccY * rangePerDigit * 9.80665f + 0.15;
-    NormAccZ = AccZ * rangePerDigit * 9.80665f - 1.04;
+    NormAccX = (AccX * rangeAcc) * 9.80665f - 0.54;
+    NormAccY = (AccY * rangeAcc) * 9.80665f + 0.12;
+    NormAccZ = (AccZ * rangeAcc) * 9.80665f - 1.03;
 
     Wire.beginTransmission(MPU_ADDR);
     Wire.write(0x43);  // Gyro data first register address 0x43
     Wire.endTransmission(false);
-    Wire.requestFrom(MPU_ADDR, 6, true);           // Read 4 registers total, each axis value is stored in 2 registers
-    GyroX = ((Wire.read() << 8) | (Wire.read()));  // For a 250deg/s range we have to divide first the raw value by 131.0, according to the datasheet
-    GyroY = ((Wire.read() << 8) | (Wire.read()));
-    GyroZ = ((Wire.read() << 8) | (Wire.read()));
+    Wire.requestFrom(MPU_ADDR, 6, true);  // Read 6 registers total, each axis value is stored in 2 registers
+    // For a 500deg/s range we have to divide first the raw value by 65.5, according to the datasheet
+    GyroX = ((Wire.read() << 8) | (Wire.read()));  // X-axis value
+    GyroY = ((Wire.read() << 8) | (Wire.read()));  // Y-axis value
+    GyroZ = ((Wire.read() << 8) | (Wire.read()));  // Z-axis value
     // Correct the outputs with the calculated error values
-    NormGyroX = (GyroX / 131.0) + 0.97;  // GyroErrorX ~(-0.56)
-    NormGyroY = (GyroY / 131.0) + 2.82;  // GyroErrorY ~(2)
-    NormGyroZ = (GyroZ / 131.0) - 1.07;  // GyroErrorZ ~ (-0.8)
+    NormGyroX = (GyroX * rangeGyro) + 1.01;  // GyroErrorX ~(-0.56)
+    NormGyroY = (GyroY * rangeGyro) + 2.89;  // GyroErrorY ~(2)
+    NormGyroZ = (GyroZ * rangeGyro) - 1.08;  // GyroErrorZ ~ (-0.8)
 
     FilteredAccX = FILTER(NormAccX, BUFFER_B_acc_x, BUFFER_A_acc_x, counter);
     FilteredAccY = FILTER(NormAccY, BUFFER_B_acc_y, BUFFER_A_acc_y, counter);
@@ -247,7 +258,7 @@ void loop() {
       DataStart = 1;
       //proses data
       DataCount = DataCount + 1;
-      if (DataCount > 40) {  // Atur hingga dirasa data sudah selalu turun terus
+      if (DataCount > 50) {  // Atur hingga dirasa data sudah selalu turun terus
         StrideCheck2 = min(StrideCheck2, FilteredGyroZ);
         if ((StrideCheck2 != FilteredGyroZ)) {
           StrideCheck1 = 500.0;
@@ -259,7 +270,7 @@ void loop() {
       // pengambilan data interval sebelumnya selesai
       //proses data
       DataCount = DataCount + 1;
-      if (DataCount > 40) {  // Atur hingga dirasa data sudah selalu turun terus
+      if (DataCount > 50) {  // Atur hingga dirasa data sudah selalu turun terus
         StrideCheck1 = min(StrideCheck1, FilteredGyroZ);
         if ((StrideCheck1 != FilteredGyroZ)) {
           StrideCheck2 = 500.0;
@@ -322,9 +333,9 @@ void calculate_IMU_error() {
     AccY = ((Wire.read() << 8) | (Wire.read()));  // Y-axis value
     AccZ = ((Wire.read() << 8) | (Wire.read()));  // Z-axis value
     //Normalisasi Raw Data tersebut
-    NormAccX = AccX * rangePerDigit * 9.80665f;
-    NormAccY = AccY * rangePerDigit * 9.80665f;
-    NormAccZ = AccZ * rangePerDigit * 9.80665f;
+    NormAccX = (AccX * rangeAcc) * 9.80665f;
+    NormAccY = (AccY * rangeAcc) * 9.80665f;
+    NormAccZ = (AccZ * rangeAcc) * 9.80665f;
     // Sum all readings
     AccErrorX = AccErrorX + NormAccX;
     AccErrorY = AccErrorY + NormAccY;
@@ -347,9 +358,9 @@ void calculate_IMU_error() {
     GyroY = ((Wire.read() << 8) | (Wire.read()));
     GyroZ = ((Wire.read() << 8) | (Wire.read()));
     // Sum all readings
-    NormGyroX = GyroX / 131.0;
-    NormGyroY = GyroY / 131.0;
-    NormGyroZ = GyroZ / 131.0;
+    NormGyroX = GyroX * rangeGyro;
+    NormGyroY = GyroY * rangeGyro;
+    NormGyroZ = GyroZ * rangeGyro;
     GyroErrorX = GyroErrorX + NormGyroX;
     GyroErrorY = GyroErrorY + NormGyroY;
     GyroErrorZ = GyroErrorZ + NormGyroZ;
