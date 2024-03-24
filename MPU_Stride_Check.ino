@@ -238,7 +238,7 @@ void loop() {
       StrideCheck1 = min(StrideCheck1, FilteredGyroZ);
     }
     if ((StrideCheck1 != FilteredGyroZ) && (DataStart != 1)) {  // Menandakan grafik gyro-Z sudah naik kembali -- menandakan pembacaan sebelumnya merupakan local minima
-      StrideChange = 1;                                         // StrideChange = 1 -> kaki kanan, StrideChange = 0 -> kaki kiri
+      StrideChange = 1;                                         // StrideChange = 1 -> kaki x, StrideChange = 0 -> kaki y
       DataCount = 0;
       Start = 1;
     }
@@ -246,32 +246,8 @@ void loop() {
     if (StrideChange == 1) {
       DataStart = 1;
       //proses data
-      avg_AccX = avg_AccX + FilteredAccX;
-      avg_AccY = avg_AccY + FilteredAccY;
-      avg_AccZ = avg_AccZ + FilteredAccZ;
-      avg_GyroX = avg_GyroX + FilteredGyroX;
-      avg_GyroY = avg_GyroY + FilteredGyroY;
-      avg_GyroZ = avg_GyroZ + FilteredGyroZ;
-      max_AccX = max(max_AccX, FilteredAccX);
-      max_AccY = max(max_AccY, FilteredAccY);
-      max_AccZ = max(max_AccZ, FilteredAccZ);
-      max_GyroX = max(max_GyroX, FilteredGyroX);
-      max_GyroY = max(max_GyroY, FilteredGyroY);
-      max_GyroZ = max(max_GyroZ, FilteredGyroZ);
-      min_AccX = min(min_AccX, FilteredAccX);
-      min_AccY = min(min_AccY, FilteredAccY);
-      min_AccZ = min(min_AccZ, FilteredAccZ);
-      min_GyroX = min(min_GyroX, FilteredGyroX);
-      min_GyroY = min(min_GyroY, FilteredGyroY);
-      min_GyroZ = min(min_GyroZ, FilteredGyroZ);
-      Array_AccX[DataCount] = FilteredAccX;
-      Array_AccY[DataCount] = FilteredAccY;
-      Array_AccZ[DataCount] = FilteredAccZ;
-      Array_GyroX[DataCount] = FilteredGyroX;
-      Array_GyroY[DataCount] = FilteredGyroY;
-      Array_GyroZ[DataCount] = FilteredGyroZ;
       DataCount = DataCount + 1;
-      if (DataCount > 30) {  // Atur hingga dirasa data sudah selalu turun terus
+      if (DataCount > 40) {  // Atur hingga dirasa data sudah selalu turun terus
         StrideCheck2 = min(StrideCheck2, FilteredGyroZ);
         if ((StrideCheck2 != FilteredGyroZ)) {
           StrideCheck1 = 500.0;
@@ -282,32 +258,8 @@ void loop() {
     } else if (StrideChange == 0) {
       // pengambilan data interval sebelumnya selesai
       //proses data
-      avg_AccX = avg_AccX + FilteredAccX;
-      avg_AccY = avg_AccY + FilteredAccY;
-      avg_AccZ = avg_AccZ + FilteredAccZ;
-      avg_GyroX = avg_GyroX + FilteredGyroX;
-      avg_GyroY = avg_GyroY + FilteredGyroY;
-      avg_GyroZ = avg_GyroZ + FilteredGyroZ;
-      max_AccX = max(max_AccX, FilteredAccX);
-      max_AccY = max(max_AccY, FilteredAccY);
-      max_AccZ = max(max_AccZ, FilteredAccZ);
-      max_GyroX = max(max_GyroX, FilteredGyroX);
-      max_GyroY = max(max_GyroY, FilteredGyroY);
-      max_GyroZ = max(max_GyroZ, FilteredGyroZ);
-      min_AccX = min(min_AccX, FilteredAccX);
-      min_AccY = min(min_AccY, FilteredAccY);
-      min_AccZ = min(min_AccZ, FilteredAccZ);
-      min_GyroX = min(min_GyroX, FilteredGyroX);
-      min_GyroY = min(min_GyroY, FilteredGyroY);
-      min_GyroZ = min(min_GyroZ, FilteredGyroZ);
-      Array_AccX[DataCount] = FilteredAccX;
-      Array_AccY[DataCount] = FilteredAccY;
-      Array_AccZ[DataCount] = FilteredAccZ;
-      Array_GyroX[DataCount] = FilteredGyroX;
-      Array_GyroY[DataCount] = FilteredGyroY;
-      Array_GyroZ[DataCount] = FilteredGyroZ;
       DataCount = DataCount + 1;
-      if (DataCount > 30) {  // Atur hingga dirasa data sudah selalu turun terus
+      if (DataCount > 40) {  // Atur hingga dirasa data sudah selalu turun terus
         StrideCheck1 = min(StrideCheck1, FilteredGyroZ);
         if ((StrideCheck1 != FilteredGyroZ)) {
           StrideCheck2 = 500.0;
