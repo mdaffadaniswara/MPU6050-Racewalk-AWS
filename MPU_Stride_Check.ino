@@ -18,7 +18,7 @@ float avg_AccX, avg_AccY, avg_AccZ, avg_GyroX, avg_GyroY, avg_GyroZ;
 float max_AccX, max_AccY, max_AccZ, max_GyroX, max_GyroY, max_GyroZ;
 float min_AccX, min_AccY, min_AccZ, min_GyroX, min_GyroY, min_GyroZ;
 float stdev_AccX, stdev_AccY, stdev_AccZ, stdev_GyroX, stdev_GyroY, stdev_GyroZ;
-float Array_AccX[51], Array_AccY[51], Array_AccZ[51], Array_GyroX[51], Array_GyroY[51], Array_GyroZ[51];
+float Array_AccX[101], Array_AccY[101], Array_AccZ[101], Array_GyroX[101], Array_GyroY[101], Array_GyroZ[101];
 
 float StrideCheck1 = 500.0;
 float StrideCheck2 = 500.0;
@@ -62,15 +62,42 @@ float FILTER(float input, float buffer_b[], float buffer_a[], int counter) {
   return FILTERED_DATA;
 }
 
-float get_stdev(float data[51], float mean) {
+float get_stdev(float data[], float mean, int arraySize) {
   float hasil = 0;
   float stdev;
-  for (int i = 0; i < 50; i++) {
+  for (int i = 0; i < (arraySize + 1); i++) {
     hasil = hasil + (sq(data[i] - mean));
   }
-  hasil = hasil / 50;
+  hasil = hasil / (arraySize + 1);
   stdev = sqrt(hasil);
   return stdev;
+}
+
+void DATA_PROCESSING() {
+  avg_AccX = avg_AccX + FilteredAccX;
+  avg_AccY = avg_AccY + FilteredAccY;
+  avg_AccZ = avg_AccZ + FilteredAccZ;
+  avg_GyroX = avg_GyroX + FilteredGyroX;
+  avg_GyroY = avg_GyroY + FilteredGyroY;
+  avg_GyroZ = avg_GyroZ + FilteredGyroZ;
+  max_AccX = max(max_AccX, FilteredAccX);
+  max_AccY = max(max_AccY, FilteredAccY);
+  max_AccZ = max(max_AccZ, FilteredAccZ);
+  max_GyroX = max(max_GyroX, FilteredGyroX);
+  max_GyroY = max(max_GyroY, FilteredGyroY);
+  max_GyroZ = max(max_GyroZ, FilteredGyroZ);
+  min_AccX = min(min_AccX, FilteredAccX);
+  min_AccY = min(min_AccY, FilteredAccY);
+  min_AccZ = min(min_AccZ, FilteredAccZ);
+  min_GyroX = min(min_GyroX, FilteredGyroX);
+  min_GyroY = min(min_GyroY, FilteredGyroY);
+  min_GyroZ = min(min_GyroZ, FilteredGyroZ);
+  Array_AccX[DataCount] = FilteredAccX;
+  Array_AccY[DataCount] = FilteredAccY;
+  Array_AccZ[DataCount] = FilteredAccZ;
+  Array_GyroX[DataCount] = FilteredGyroX;
+  Array_GyroY[DataCount] = FilteredGyroY;
+  Array_GyroZ[DataCount] = FilteredGyroZ;
 }
 
 void DEBUG_PRINT_MPU() {  // // ------PRINT TO serial---------
@@ -99,6 +126,7 @@ void DEBUG_PRINT_MPU() {  // // ------PRINT TO serial---------
   Serial.print(FilteredGyroZ);
   Serial.println(';');
 }
+
 void DEBUG_PRINT() {
   Serial.print(avg_AccX);
   Serial.print(';');
@@ -149,6 +177,7 @@ void DEBUG_PRINT() {
   Serial.print(stdev_GyroZ);
   Serial.println(';');
 }
+
 void RESET_DATA() {
   avg_AccX = 0;
   avg_AccY = 0;
@@ -177,7 +206,6 @@ void RESET_DATA() {
   stdev_GyroZ = 0;
 }
 
-
 void setup() {
   Serial.begin(230400);
   Wire.begin();                      // Initialize comunication
@@ -204,7 +232,7 @@ void setup() {
   // peakDetection.begin(36, 5, 0.6);   // sets the lag, threshold and influence
   //change the threshold
   delay(20);
-  calculate_IMU_error();
+  // calculate_IMU_error();
 }
 
 // void loop(){}
@@ -257,8 +285,9 @@ void loop() {
     if (StrideChange == 1) {
       DataStart = 1;
       //proses data
+      DATA_PROCESSING();
       DataCount = DataCount + 1;
-      if (DataCount > 50) {  // Atur hingga dirasa data sudah selalu turun terus
+      if (DataCount > 45) {  // Atur hingga dirasa data sudah selalu turun terus
         StrideCheck2 = min(StrideCheck2, FilteredGyroZ);
         if ((StrideCheck2 != FilteredGyroZ)) {
           StrideCheck1 = 500.0;
@@ -269,8 +298,9 @@ void loop() {
     } else if (StrideChange == 0) {
       // pengambilan data interval sebelumnya selesai
       //proses data
+      DATA_PROCESSING();
       DataCount = DataCount + 1;
-      if (DataCount > 50) {  // Atur hingga dirasa data sudah selalu turun terus
+      if (DataCount > 45) {  // Atur hingga dirasa data sudah selalu turun terus
         StrideCheck1 = min(StrideCheck1, FilteredGyroZ);
         if ((StrideCheck1 != FilteredGyroZ)) {
           StrideCheck2 = 500.0;
@@ -288,13 +318,13 @@ void loop() {
       avg_GyroX = avg_GyroX / DataCount;
       avg_GyroY = avg_GyroY / DataCount;
       avg_GyroZ = avg_GyroZ / DataCount;
-      stdev_AccX = get_stdev(Array_AccX, avg_AccX);
-      stdev_AccY = get_stdev(Array_AccY, avg_AccY);
-      stdev_AccZ = get_stdev(Array_AccZ, avg_AccZ);
-      stdev_GyroX = get_stdev(Array_GyroX, avg_GyroX);
-      stdev_GyroY = get_stdev(Array_GyroY, avg_GyroY);
-      stdev_GyroZ = get_stdev(Array_GyroZ, avg_GyroZ);
-      // DEBUG_PRINT();
+      stdev_AccX = get_stdev(Array_AccX, avg_AccX, DataCount);
+      stdev_AccY = get_stdev(Array_AccY, avg_AccY, DataCount);
+      stdev_AccZ = get_stdev(Array_AccZ, avg_AccZ, DataCount);
+      stdev_GyroX = get_stdev(Array_GyroX, avg_GyroX, DataCount);
+      stdev_GyroY = get_stdev(Array_GyroY, avg_GyroY, DataCount);
+      stdev_GyroZ = get_stdev(Array_GyroZ, avg_GyroZ, DataCount);
+      DEBUG_PRINT();
       // publishMessage();
       // client.loop();
       DataCount = 0;
