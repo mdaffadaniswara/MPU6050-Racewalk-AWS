@@ -1,7 +1,5 @@
 #include "Wire.h"
 #include <Arduino.h>
-#include <PeakDetection.h>
-PeakDetection peakDetection;  // create PeakDetection object
 
 #define MPU_ADDR 0x68
 #define FILTER_ORDER 3
@@ -22,8 +20,9 @@ float Array_AccX[101], Array_AccY[101], Array_AccZ[101], Array_GyroX[101], Array
 
 float StrideCheck1 = 500.0;
 float StrideCheck2 = 500.0;
+float MaxCheck = (-99.0);
 int DataCount, DataProcess, DataStart = 0;
-int Start = 0;
+int Start = 2;
 int StrideChange = 2;
 
 float rangeAcc = .0001220703125f;
@@ -272,22 +271,29 @@ void loop() {
     FilteredGyroY = FILTER(NormGyroY, BUFFER_B_gyro_y, BUFFER_A_gyro_y, counter);
     FilteredGyroZ = FILTER(NormGyroZ, BUFFER_B_gyro_z, BUFFER_A_gyro_z, counter);
 
+    // Tanda stride check dengan deteksi bentuk maxima
+    if ((FilteredGyroZ >= 250.0) && (Start == 2)) {
+      MaxCheck = max(MaxCheck, FilteredGyroZ);
+      if (MaxCheck != FilteredGyroZ) {  //grafik sudah sampai maxima dan mulai turun
+        Start = 0;
+      }
+    }
     // Stride check by detecting local minima
     if (Start == 0) {
       StrideCheck1 = min(StrideCheck1, FilteredGyroZ);
+      if ((StrideCheck1 != FilteredGyroZ) && (DataStart != 1)) {  // Menandakan grafik gyro-Z sudah naik kembali -- menandakan pembacaan sebelumnya merupakan local minima
+        StrideChange = 1;                                         // StrideChange = 1 -> kaki x, StrideChange = 0 -> kaki y
+        DataCount = 0;
+        Start = 1;
+      }
     }
-    if ((StrideCheck1 != FilteredGyroZ) && (DataStart != 1)) {  // Menandakan grafik gyro-Z sudah naik kembali -- menandakan pembacaan sebelumnya merupakan local minima
-      StrideChange = 1;                                         // StrideChange = 1 -> kaki x, StrideChange = 0 -> kaki y
-      DataCount = 0;
-      Start = 1;
-    }
-
+    // Divide data dan proses berdasarkan stride
     if (StrideChange == 1) {
       DataStart = 1;
       //proses data
       DATA_PROCESSING();
       DataCount = DataCount + 1;
-      if (DataCount > 45) {  // Atur hingga dirasa data sudah selalu turun terus
+      if (DataCount > 40) {  // Atur hingga dirasa data sudah selalu turun terus
         StrideCheck2 = min(StrideCheck2, FilteredGyroZ);
         if ((StrideCheck2 != FilteredGyroZ)) {
           StrideCheck1 = 500.0;
@@ -300,7 +306,7 @@ void loop() {
       //proses data
       DATA_PROCESSING();
       DataCount = DataCount + 1;
-      if (DataCount > 45) {  // Atur hingga dirasa data sudah selalu turun terus
+      if (DataCount > 40) {  // Atur hingga dirasa data sudah selalu turun terus
         StrideCheck1 = min(StrideCheck1, FilteredGyroZ);
         if ((StrideCheck1 != FilteredGyroZ)) {
           StrideCheck2 = 500.0;
