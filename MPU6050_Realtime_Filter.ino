@@ -102,20 +102,18 @@ void DATA_PROCESSING() {
 }
 
 void DEBUG_PRINT_MPU() {  // // ------PRINT TO serial---------
-  // Serial.print(StrideChange);
-  // Serial.print(';');
   // // Serial.print(NormAccX);
   // // Serial.print(';');
-  // Serial.print(FilteredAccX, 4);
-  // Serial.print(';');
+  Serial.print(FilteredAccX, 4);
+  Serial.print(';');
   // // // Serial.print(NormAccY);
   // // // Serial.print(';');
-  // Serial.print(FilteredAccY, 4);
-  // Serial.print(';');
+  Serial.print(FilteredAccY, 4);
+  Serial.print(';');
   // // // Serial.print(NormAccZ);
   // // // Serial.print(';');
-  // Serial.print(FilteredAccZ, 4);
-  // Serial.println(';');
+  Serial.print(FilteredAccZ, 4);
+  Serial.print(';');
   // Serial.print(NormGyroX);
   // Serial.print(';');
   Serial.print(FilteredGyroX, 4);
@@ -127,6 +125,10 @@ void DEBUG_PRINT_MPU() {  // // ------PRINT TO serial---------
   // Serial.print(NormGyroZ);
   // Serial.print(';');
   Serial.print(FilteredGyroZ, 4);
+  Serial.print(';');
+  Serial.print(DataThreshold);
+  Serial.print(';');
+  Serial.print(StrideChange);
   Serial.println(';');
 }
 
@@ -313,11 +315,11 @@ void loop() {
       if ((FilteredGyroZ >= 300.0) && (MaxStop == 0)) {
         MaxCheck = max(MaxCheck, FilteredGyroZ);
         if (MaxCheck != FilteredGyroZ) {  //grafik sudah sampai maxima dan mulai turun
-          DataThreshold = (DataCount + 5);
+          DataThreshold = (DataCount + 8);
           MaxStop = 1;
         }
       }
-      if (MaxStop == 1) {
+      if ((MaxStop == 1) && (DataCount >= DataThreshold)) {
         StrideCheck1 = min(StrideCheck1, FilteredGyroZ);
         if (StrideCheck1 != FilteredGyroZ) {
           StrideCheck2 = 500.0;
@@ -343,14 +345,14 @@ void loop() {
       stdev_GyroX = get_stdev(Array_GyroX, avg_GyroX, DataCount);
       stdev_GyroY = get_stdev(Array_GyroY, avg_GyroY, DataCount);
       stdev_GyroZ = get_stdev(Array_GyroZ, avg_GyroZ, DataCount);
-      // DEBUG_PRINT();
+      DEBUG_PRINT();
       // publishMessage();
       // client.loop();
       DataCount = 0;
       RESET_DATA();
       DataProcess = 0;
     }
-    DEBUG_PRINT_MPU();
+    // DEBUG_PRINT_MPU();
     counter = counter + 1;
     if (counter > FILTER_ORDER) {
       counter = 0;
