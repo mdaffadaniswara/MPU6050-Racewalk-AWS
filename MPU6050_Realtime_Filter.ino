@@ -3,6 +3,7 @@
 
 #define MPU_ADDR 0x68
 #define FILTER_ORDER 3
+const uint8_t button_PIN = 23;
 
 uint32_t intervalMPU = 10;
 uint32_t last;
@@ -10,7 +11,7 @@ int16_t AccX, AccY, AccZ;
 int16_t GyroX, GyroY, GyroZ;
 float NormAccX, NormAccY, NormAccZ;
 float NormGyroX, NormGyroY, NormGyroZ;
-float AccErrorX, AccErrorY, AccErrorZ, GyroErrorX, GyroErrorY, GyroErrorZ;
+float AccOffsetX, AccOffsetY, AccOffsetZ, GyroOffsetX, GyroOffsetY, GyroOffsetZ;
 
 float avg_AccX, avg_AccY, avg_AccZ, avg_GyroX, avg_GyroY, avg_GyroZ;
 float max_AccX, max_AccY, max_AccZ, max_GyroX, max_GyroY, max_GyroZ;
@@ -27,6 +28,7 @@ int StrideChange = 2;
 int MaxStop = 0;
 int DataThreshold = 35;
 
+float refG = 9.8037f;
 float rangeAcc = .0001220703125f;
 float rangeGyro = .0152671755725191f;
 int c = 0;
@@ -46,6 +48,12 @@ float BUFFER_A_gyro_z[FILTER_ORDER + 1] = { 0.0 };
 float BUFFER_B_gyro_z[FILTER_ORDER + 1] = { 0.0 };
 float FilteredAccX, FilteredAccY, FilteredAccZ, FilteredGyroX, FilteredGyroY, FilteredGyroZ;
 int counter = 0;
+int flag_isr = 0;
+uint32_t last_button_time = 0;
+uint32_t button_time;
+
+float MEAN_SCALER[24] = { 3.76271545, -10.65023171, -1.31324797, -4.06612195, 2.92721545, -3.66056504, 23.30673577, 2.80148374, 7.02997154, 68.79730894, 155.73365447, 191.5308374, -13.49200813, -26.86039837, -9.91650407, -97.37462195, -212.9678252, -249.09442683, 9.02141057, 6.86697561, 4.01061382, 48.09696748, 93.22341463, 147.83123171 };
+float STD_SCALER[24] = { 3.10959788, 1.95026829, 1.62881921, 35.00904887, 20.91665539, 114.55124895, 7.65555349, 6.23099875, 3.14651746, 66.22459166, 51.50013034, 228.86725294, 6.44327081, 5.38475926, 3.31712396, 44.98519303, 54.66344971, 40.38267696, 2.97103616, 1.89276914, 1.05704692, 28.52512897, 23.00918837, 83.8071792 };
 
 float FILTER(float input, float buffer_b[], float buffer_a[], int counter) {
   float FILTERED_DATA;
@@ -210,8 +218,18 @@ void RESET_DATA() {
   stdev_GyroZ = 0;
 }
 
+void IRAM_ATTR isr() {
+  if (millis() - last_button_time > 250) {
+    flag_isr = 1;
+    last_button_time = millis();
+  }
+}
+
 void setup() {
   Serial.begin(230400);
+  pinMode(button_PIN, INPUT_PULLUP);
+  attachInterrupt(button_PIN, isr, FALLING);
+
   Wire.begin();                      // Initialize comunication
   Wire.beginTransmission(MPU_ADDR);  // Start communication with MPU6050 // MPU=0x68
   Wire.write(0x6B);                  // Talk to the register 6B
@@ -241,6 +259,10 @@ void setup() {
 
 // void loop(){}
 void loop() {
+  if (flag_isr == 1) {
+    calculate_IMU_error(&AccOffsetX, &AccOffsetY, &AccOffsetZ, &GyroOffsetX, &GyroOffsetY, &GyroOffsetZ);
+    flag_isr = 0;
+  }
   if (millis() - last >= intervalMPU) {
     // === Read acceleromter data === //
     Wire.beginTransmission(MPU_ADDR);
@@ -252,9 +274,12 @@ void loop() {
     AccY = ((Wire.read() << 8) | (Wire.read()));  // Y-axis value
     AccZ = ((Wire.read() << 8) | (Wire.read()));  // Z-axis value
     //Normalisasi Raw Data tersebut  Ref: 9.8036
-    NormAccX = (AccX * rangeAcc) * 9.80665f - 0.3094;
-    NormAccY = (AccY * rangeAcc) * 9.80665f + 0.2234;
-    NormAccZ = (AccZ * rangeAcc) * 9.80665f - 0.9274;
+    // NormAccX = (AccX * rangeAcc) * 9.80665f - 0.3094;
+    // NormAccY = (AccY * rangeAcc) * 9.80665f + 0.2234;
+    // NormAccZ = (AccZ * rangeAcc) * 9.80665f - 0.9274;
+    NormAccX = (AccX * rangeAcc) * 9.80665f - AccOffsetX;
+    NormAccY = (AccY * rangeAcc) * 9.80665f - AccOffsetY;
+    NormAccZ = (AccZ * rangeAcc) * 9.80665f - AccOffsetZ;
 
     Wire.beginTransmission(MPU_ADDR);
     Wire.write(0x43);  // Gyro data first register address 0x43
@@ -265,9 +290,12 @@ void loop() {
     GyroY = ((Wire.read() << 8) | (Wire.read()));  // Y-axis value
     GyroZ = ((Wire.read() << 8) | (Wire.read()));  // Z-axis value
     // Correct the outputs with the calculated error values
-    NormGyroX = (GyroX * rangeGyro) + 1.0229;  // GyroErrorX ~(-0.56)
-    NormGyroY = (GyroY * rangeGyro) + 2.7209;  // GyroErrorY ~(2)
-    NormGyroZ = (GyroZ * rangeGyro) - 1.0408;  // GyroErrorZ ~ (-0.8)
+    // NormGyroX = (GyroX * rangeGyro) + 1.0229;  // GyroErrorX ~(-0.56)
+    // NormGyroY = (GyroY * rangeGyro) + 2.7209;  // GyroErrorY ~(2)
+    // NormGyroZ = (GyroZ * rangeGyro) - 1.0408;  // GyroErrorZ ~ (-0.8)
+    NormGyroX = (GyroX * rangeGyro) - GyroOffsetX;  // GyroErrorX ~(-0.56)
+    NormGyroY = (GyroY * rangeGyro) - GyroOffsetY;  // GyroErrorY ~(2)
+    NormGyroZ = (GyroZ * rangeGyro) - GyroOffsetX;  // GyroErrorZ ~ (-0.8)
 
     FilteredAccX = FILTER(NormAccX, BUFFER_B_acc_x, BUFFER_A_acc_x, counter);
     FilteredAccY = FILTER(NormAccY, BUFFER_B_acc_y, BUFFER_A_acc_y, counter);
@@ -345,6 +373,30 @@ void loop() {
       stdev_GyroX = get_stdev(Array_GyroX, avg_GyroX, DataCount);
       stdev_GyroY = get_stdev(Array_GyroY, avg_GyroY, DataCount);
       stdev_GyroZ = get_stdev(Array_GyroZ, avg_GyroZ, DataCount);
+      avg_AccX = (avg_AccX - MEAN_SCALER[0]) / STD_SCALER[0];
+      avg_AccY = (avg_AccY - MEAN_SCALER[1]) / STD_SCALER[1];
+      avg_AccZ = (avg_AccZ - MEAN_SCALER[2]) / STD_SCALER[2];
+      avg_GyroX = (avg_GyroX - MEAN_SCALER[3]) / STD_SCALER[3];
+      avg_GyroY = (avg_GyroY - MEAN_SCALER[4]) / STD_SCALER[4];
+      avg_GyroZ = (avg_GyroZ - MEAN_SCALER[5]) / STD_SCALER[5];
+      max_AccX = (max_AccX - MEAN_SCALER[6]) / STD_SCALER[6];
+      max_AccY = (max_AccY - MEAN_SCALER[7]) / STD_SCALER[7];
+      max_AccZ = (max_AccZ - MEAN_SCALER[8]) / STD_SCALER[8];
+      max_GyroX = (max_GyroX - MEAN_SCALER[9]) / STD_SCALER[9];
+      max_GyroY = (max_GyroY - MEAN_SCALER[10]) / STD_SCALER[10];
+      max_GyroZ = (max_GyroZ - MEAN_SCALER[11]) / STD_SCALER[11];
+      min_AccX = (min_AccX - MEAN_SCALER[12]) / STD_SCALER[12];
+      min_AccY = (min_AccY - MEAN_SCALER[13]) / STD_SCALER[13];
+      min_AccZ = (min_AccZ - MEAN_SCALER[14]) / STD_SCALER[14];
+      min_GyroX = (min_GyroX - MEAN_SCALER[15]) / STD_SCALER[15];
+      min_GyroY = (min_GyroY - MEAN_SCALER[16]) / STD_SCALER[16];
+      min_GyroZ = (min_GyroZ - MEAN_SCALER[17]) / STD_SCALER[17];
+      stdev_AccX = (stdev_AccX - MEAN_SCALER[18]) / STD_SCALER[18];
+      stdev_AccY = (stdev_AccY - MEAN_SCALER[19]) / STD_SCALER[19];
+      stdev_AccZ = (stdev_AccZ - MEAN_SCALER[20]) / STD_SCALER[20];
+      stdev_GyroX = (stdev_GyroX - MEAN_SCALER[21]) / STD_SCALER[21];
+      stdev_GyroY = (stdev_GyroY - MEAN_SCALER[22]) / STD_SCALER[22];
+      stdev_GyroZ = (stdev_GyroZ - MEAN_SCALER[23]) / STD_SCALER[23];
       DEBUG_PRINT();
       // publishMessage();
       // client.loop();
@@ -363,7 +415,14 @@ void loop() {
   }
 }
 
-void calculate_IMU_error() {
+void calculate_IMU_error(float* AccOffsetX, float* AccOffsetY, float* AccOffsetZ, float* GyroOffsetX, float* GyroOffsetY, float* GyroOffsetZ) {
+  float AccErrorX = 0.0f;
+  float AccErrorY = 0.0f;
+  float AccErrorZ = 0.0f;
+  float GyroErrorX = 0.0f;
+  float GyroErrorY = 0.0f;
+  float GyroErrorZ = 0.0f;
+  int c = 0;
   // We can call this funtion in the setup section to calculate the accelerometer and gyro data error. From here we will get the error values used in the above equations printed on the Serial Monitor.
   // Note that we should place the IMU flat in order to get the proper values, so that we then can the correct values
   // Read accelerometer values 200 times
@@ -384,13 +443,20 @@ void calculate_IMU_error() {
     AccErrorX = AccErrorX + NormAccX;
     AccErrorY = AccErrorY + NormAccY;
     AccErrorZ = AccErrorZ + NormAccZ;
-
     c++;
   }
   //Divide the sum by 100 to get the error value
   AccErrorX = AccErrorX / 100;
   AccErrorY = AccErrorY / 100;
   AccErrorZ = AccErrorZ / 100;
+  // Reference G: 9.8037
+  if (NormAccX > 9.0f) {
+    *AccOffsetX = (AccErrorX - refG);
+  } else if (NormAccY > 9.0f) {
+    *AccOffsetY = (AccErrorY - refG);
+  } else if (NormAccZ > 9.0f) {
+    *AccOffsetZ = (AccErrorZ - refG);
+  }
   c = 0;
   // Read gyro values 200 times
   while (c < 100) {
@@ -411,20 +477,22 @@ void calculate_IMU_error() {
     c++;
   }
   //Divide the sum by 200 to get the error value
-  GyroErrorX = GyroErrorX / 100;
-  GyroErrorY = GyroErrorY / 100;
-  GyroErrorZ = GyroErrorZ / 100;
+  if (NormAccX > 9.0f) {
+    *GyroOffsetX = GyroErrorX / 100;
+    *GyroOffsetY = GyroErrorY / 100;
+    *GyroOffsetZ = GyroErrorZ / 100;
+  }
   // Print the error values on the Serial Monitor
   Serial.print("AccErrorX: ");
-  Serial.println(AccErrorX, 4);
+  Serial.println(*AccOffsetX, 4);
   Serial.print("AccErrorY: ");
-  Serial.println(AccErrorY, 4);
+  Serial.println(*AccOffsetY, 4);
   Serial.print("AccErrorZ: ");
-  Serial.println(AccErrorZ, 4);
+  Serial.println(*AccOffsetZ, 4);
   Serial.print("GyroErrorX: ");
-  Serial.println(GyroErrorX, 4);
+  Serial.println(*GyroOffsetX, 4);
   Serial.print("GyroErrorY: ");
-  Serial.println(GyroErrorY, 4);
+  Serial.println(*GyroOffsetY, 4);
   Serial.print("GyroErrorZ: ");
-  Serial.println(GyroErrorZ, 4);
+  Serial.println(*GyroOffsetZ, 4);
 }
