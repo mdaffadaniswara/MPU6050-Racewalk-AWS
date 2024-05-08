@@ -40,6 +40,7 @@ int Start = 2;
 int StrideChange = 2;
 int MaxStop = 0;
 int DataThreshold = 35;
+int CheckLimit = 0;
 
 float refG = 9.8037f;
 float rangeAcc = .0001220703125f;
@@ -152,7 +153,7 @@ void publishMessage() {
   doc["gyro_x_stdev"] = stdev_GyroX;
   doc["gyro_y_stdev"] = stdev_GyroY;
   doc["gyro_z_stdev"] = stdev_GyroZ;
-  char jsonBuffer[512];
+  char jsonBuffer[4096];
   serializeJson(doc, jsonBuffer);  // print to client
 
   client.publish(AWS_IOT_PUBLISH_TOPIC, jsonBuffer);
@@ -467,22 +468,32 @@ void loop() {
       //proses data
       DATA_PROCESSING();
       DataCount = DataCount + 1;
-      if ((FilteredGyroZ >= 300.0) && (MaxStop == 0)) {
-        MaxCheck = max(MaxCheck, FilteredGyroZ);
-        if (MaxCheck != FilteredGyroZ) {  //grafik sudah sampai maxima dan mulai turun
-          DataThreshold = (DataCount + 8);
-          MaxStop = 1;
+      if (CheckLimit == 0) {
+        if ((FilteredGyroZ >= 300.0) && (MaxStop == 0)) {
+          MaxCheck = max(MaxCheck, FilteredGyroZ);
+          if (MaxCheck != FilteredGyroZ) {  //grafik sudah sampai maxima dan mulai turun
+            DataThreshold = (DataCount + 8);
+            MaxStop = 1;
+          } else if (DataCount > 50){
+            CheckLimit = 1;
+          }
         }
-      }
-      if ((MaxStop == 1) && (DataCount >= DataThreshold)) {
-        StrideCheck1 = min(StrideCheck1, FilteredGyroZ);
-        if (StrideCheck1 != FilteredGyroZ) {
-          StrideCheck2 = 500.0;
-          MaxCheck = (-99.0);
-          MaxStop = 0;
-          StrideChange = 1;
-          DataProcess = 1;
+        if ((MaxStop == 1) && (DataCount >= DataThreshold)) {
+          StrideCheck1 = min(StrideCheck1, FilteredGyroZ);
+          if (StrideCheck1 != FilteredGyroZ) {
+            StrideCheck2 = 500.0;
+            MaxCheck = (-99.0);
+            MaxStop = 0;
+            StrideChange = 1;
+            DataProcess = 1;
+          }
         }
+      } else if (CheckLimit == 1) {
+        DataThreshold = 35;
+        StrideCheck2 = 500.0;
+        MaxCheck = (-99.0);
+        StrideChange = 1;
+        CheckLimit = 0;
       }
     }
 
