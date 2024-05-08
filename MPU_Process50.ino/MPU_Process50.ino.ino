@@ -442,7 +442,7 @@ void loop() {
     // Stride check by detecting local minima
     if (Start == 0) {
       StrideCheck1 = min(StrideCheck1, FilteredGyroZ);
-      if ((StrideCheck1 != FilteredGyroZ) && (DataStart != 1)) {  // Menandakan grafik gyro-Z sudah naik kembali -- menandakan pembacaan sebelumnya merupakan local minima
+      if (StrideCheck1 != FilteredGyroZ) {  // Menandakan grafik gyro-Z sudah naik kembali -- menandakan pembacaan sebelumnya merupakan local minima
         MaxCheck = (-99.0);
         StrideChange = 1;  // StrideChange = 1 -> kaki x, StrideChange = 0 -> kaki y
         DataCount = 0;
@@ -451,7 +451,6 @@ void loop() {
     }
     // Divide data dan proses berdasarkan stride
     if (StrideChange == 1) {
-      DataStart = 1;
       //proses data
       DATA_PROCESSING();
       DataCount = DataCount + 1;
@@ -468,44 +467,43 @@ void loop() {
       //proses data
       DATA_PROCESSING();
       DataCount = DataCount + 1;
-      if (CheckLimit == 0) {
-        if ((FilteredGyroZ >= 300.0) && (MaxStop == 0)) {
-          MaxCheck = max(MaxCheck, FilteredGyroZ);
-          if (MaxCheck != FilteredGyroZ) {  //grafik sudah sampai maxima dan mulai turun
-            DataThreshold = (DataCount + 8);
-            MaxStop = 1;
-          } else if (DataCount > 50){
-            CheckLimit = 1;
-          }
+      if ((FilteredGyroZ >= 300.0) && (MaxStop == 0)) {
+        MaxCheck = max(MaxCheck, FilteredGyroZ);
+        if (MaxCheck != FilteredGyroZ) {  //grafik sudah sampai maxima dan mulai turun
+          DataThreshold = (DataCount + 8);
+          MaxStop = 1;
+        } else if (DataCount > 50) {
+          RESET_DATA();
+          DataCount = 0;
+          DataThreshold = 35;
+          StrideChange = 2;
+          StrideCheck2 = 500.0;
+          MaxCheck = (-99.0);
+          Start = 2;
         }
-        if ((MaxStop == 1) && (DataCount >= DataThreshold)) {
-          StrideCheck1 = min(StrideCheck1, FilteredGyroZ);
-          if (StrideCheck1 != FilteredGyroZ) {
-            StrideCheck2 = 500.0;
-            MaxCheck = (-99.0);
-            MaxStop = 0;
-            StrideChange = 1;
-            DataProcess = 1;
-          }
+      }
+      if ((MaxStop == 1) && (DataCount >= DataThreshold)) {
+        StrideCheck1 = min(StrideCheck1, FilteredGyroZ);
+        if (StrideCheck1 != FilteredGyroZ) {
+          StrideCheck2 = 500.0;
+          MaxCheck = (-99.0);
+          MaxStop = 0;
+          StrideChange = 1;
+          DataProcess = 1;
         }
-      } else if (CheckLimit == 1) {
-        DataThreshold = 35;
-        StrideCheck2 = 500.0;
-        MaxCheck = (-99.0);
-        StrideChange = 1;
-        CheckLimit = 0;
       }
     }
 
     if (DataProcess == 1) {
       //Proses kirim data
       getTime = millis();
+      unsigned long miliseconds = getTime % 1000;
       unsigned long seconds = getTime / 1000;
       unsigned long minutes = seconds / 60;
       unsigned long hours = minutes / 60;
       seconds %= 60;
       minutes %= 60;
-      getTime_str = String(hours) + ":" + String(minutes) + ":" + String(seconds);
+      getTime_str = String(hours) + ":" + String(minutes) + ":" + String(seconds) + ":" + String(miliseconds);
 
       avg_AccX = avg_AccX / DataCount;
       avg_AccY = avg_AccY / DataCount;
@@ -519,6 +517,11 @@ void loop() {
       stdev_GyroX = get_stdev(Array_GyroX, avg_GyroX, DataCount);
       stdev_GyroY = get_stdev(Array_GyroY, avg_GyroY, DataCount);
       stdev_GyroZ = get_stdev(Array_GyroZ, avg_GyroZ, DataCount);
+      if (avg_AccX < 5.0f){
+        Start = 2;
+        StrideChange = 2;
+      }
+      // Normalisasi data
       avg_AccX = (avg_AccX - MEAN_SCALER[0]) / STD_SCALER[0];
       avg_AccY = (avg_AccY - MEAN_SCALER[1]) / STD_SCALER[1];
       avg_AccZ = (avg_AccZ - MEAN_SCALER[2]) / STD_SCALER[2];
