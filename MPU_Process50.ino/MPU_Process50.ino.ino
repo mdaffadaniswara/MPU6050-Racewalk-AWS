@@ -9,8 +9,11 @@
 #define MPU_ADDR 0x68
 #define FILTER_ORDER 3
 const uint8_t button_PIN = 23;
-#define AWS_IOT_PUBLISH_TOPIC "RaceMate/+/data"    // sesuaikan dengan yang di setting di AWS IOT CORE
-#define AWS_IOT_SUBSCRIBE_TOPIC "RaceMate/1/data"  // sesuaikan dengan yang di setting di AWS IOT CORE
+#define AWS_IOT_PUBLISH_TOPIC "RaceMate/1/data"         // sesuaikan dengan yang di setting di AWS IOT CORE
+#define AWS_IOT_SUBSCRIBE_TOPIC "RaceMate/1/subscribe"  // sesuaikan dengan yang di setting di AWS IOT CORE
+String ID = "Athlete_01";
+unsigned long getTime;
+String getTime_str;
 
 WiFiClientSecure net = WiFiClientSecure();
 PubSubClient client(net);
@@ -123,30 +126,32 @@ void connectAWS() {
 
 void publishMessage() {
   StaticJsonDocument<2000> doc;
-  doc["Average Acceleration X"] = avg_AccX;
-  doc["Average Acceleration Y"] = avg_AccY;
-  doc["Average Acceleration Z"] = avg_AccZ;
-  doc["Max Acceleration X"] = max_AccX;
-  doc["Max Acceleration Y"] = max_AccY;
-  doc["Max Acceleration Z"] = max_AccZ;
-  doc["Min Acceleration X"] = min_AccX;
-  doc["Min Acceleration Y"] = min_AccY;
-  doc["Min Acceleration Z"] = min_AccZ;
-  doc["STDev Acceleration X"] = stdev_AccX;
-  doc["STDev Acceleration Y"] = stdev_AccY;
-  doc["STDev Acceleration Z"] = stdev_AccZ;
-  doc["Average Gyroscope X"] = avg_GyroX;
-  doc["Average Gyroscope Y"] = avg_GyroY;
-  doc["Average Gyroscope Z"] = avg_GyroZ;
-  doc["Max Gyroscope X"] = max_GyroX;
-  doc["Max Gyroscope Y"] = max_GyroY;
-  doc["Max Gyroscope Z"] = max_GyroZ;
-  doc["Min Gyroscope X"] = min_GyroX;
-  doc["Min Gyroscope Y"] = min_GyroY;
-  doc["Min Gyroscope Z"] = min_GyroZ;
-  doc["STDev Gyroscope X"] = stdev_GyroX;
-  doc["STDev Gyroscope Y"] = stdev_GyroY;
-  doc["STDev Gyroscope Z"] = stdev_GyroZ;
+  doc["ID"] = ID;
+  doc["event_timestamp"] = getTime_str;
+  doc["acc_x_avg"] = avg_AccX;
+  doc["acc_y_avg"] = avg_AccY;
+  doc["acc_z_avg"] = avg_AccZ;
+  doc["gyro_x_avg"] = avg_GyroX;
+  doc["gyro_y_avg"] = avg_GyroY;
+  doc["gyro_z_avg"] = avg_GyroZ;
+  doc["acc_x_max"] = max_AccX;
+  doc["acc_y_max"] = max_AccY;
+  doc["acc_z_max"] = max_AccZ;
+  doc["gyro_x_max"] = max_GyroX;
+  doc["gyro_y_max"] = max_GyroY;
+  doc["gyro_z_max"] = max_GyroZ;
+  doc["acc_x_min"] = min_AccX;
+  doc["acc_y_min"] = min_AccY;
+  doc["acc_z_min"] = min_AccZ;
+  doc["gyro_x_min"] = min_GyroX;
+  doc["gyro_y_min"] = min_GyroY;
+  doc["gyro_z_min"] = min_GyroZ;
+  doc["acc_x_stdev"] = stdev_AccX;
+  doc["acc_y_stdev"] = stdev_AccY;
+  doc["acc_z_stdev"] = stdev_AccZ;
+  doc["gyro_x_stdev"] = stdev_GyroX;
+  doc["gyro_y_stdev"] = stdev_GyroY;
+  doc["gyro_z_stdev"] = stdev_GyroZ;
   char jsonBuffer[512];
   serializeJson(doc, jsonBuffer);  // print to client
 
@@ -483,6 +488,14 @@ void loop() {
 
     if (DataProcess == 1) {
       //Proses kirim data
+      getTime = millis();
+      unsigned long seconds = getTime / 1000;
+      unsigned long minutes = seconds / 60;
+      unsigned long hours = minutes / 60;
+      seconds %= 60;
+      minutes %= 60;
+      getTime_str = String(hours) + ":" + String(minutes) + ":" + String(seconds);
+
       avg_AccX = avg_AccX / DataCount;
       avg_AccY = avg_AccY / DataCount;
       avg_AccZ = avg_AccZ / DataCount;
