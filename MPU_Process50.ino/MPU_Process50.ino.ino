@@ -8,20 +8,33 @@
 #include <queue>
 #include <Ticker.h>
 
+// Timers for handling reconnection
+Ticker wifiReconnectTimer;
+Ticker mqttReconnectTimer;
+int ACK = 0;
+const int qos = 1;
+
+
 #define MPU_ADDR 0x68
 #define FILTER_ORDER 3
 const uint8_t button_PIN = 23;
-#define AWS_IOT_PUBLISH_TOPIC "RaceMate/1/data"         // sesuaikan dengan yang di setting di AWS IOT CORE
-#define AWS_IOT_SUBSCRIBE_TOPIC "RaceMate/1/subscribe"  // sesuaikan dengan yang di setting di AWS IOT CORE
+#define AWS_IOT_PUBLISH_TOPIC "RaceMate/1/datas"           // sesuaikan dengan yang di setting di AWS IOT CORE
+#define AWS_IOT_SUBSCRIBE_TOPIC "RaceMateSub/1/subscribe"  // sesuaikan dengan yang di setting di AWS IOT CORE
 String ID = "Athlete_01";
 unsigned long getTime;
 String getTime_str;
 
+const char* timeCheck;
+int count_check1, count_check2;
+String lastSentMessage = "";
+String secondLastSentMessage = "";
+
 WiFiClientSecure net = WiFiClientSecure();
 PubSubClient client(net);
 std::queue<String> messageQueue;
+char jsonBuffer[4096];
 
-
+uint32_t lastReconnect;
 uint32_t intervalMPU = 10;
 uint32_t last;
 int16_t AccX, AccY, AccZ;
@@ -120,7 +133,7 @@ void connectAWS() {
   client.setServer(AWS_IOT_ENDPOINT, 8883);
 
   // Create a message handler
-  client.setCallback(messageHandler);
+  client.setCallback(callback);
 
   reconnectAWS();
 }
@@ -153,23 +166,29 @@ void publishMessage() {
   doc["gyro_x_stdev"] = stdev_GyroX;
   doc["gyro_y_stdev"] = stdev_GyroY;
   doc["gyro_z_stdev"] = stdev_GyroZ;
-  char jsonBuffer[4096];
-  serializeJson(doc, Serial);  // print to client
-  Serial.println();
+
   serializeJson(doc, jsonBuffer);  // print to client
+  Serial.println(jsonBuffer);
 
-  client.publish(AWS_IOT_PUBLISH_TOPIC, jsonBuffer);
+  if (client.publish(AWS_IOT_PUBLISH_TOPIC, jsonBuffer)) {
+  } else {
+    messageQueue.push(jsonBuffer);
+  }  // Add message to the queue
+
+  // Try to publish from the queue
+  // publishFromQueue();
+  // client.publish(AWS_IOT_SUBSCRIBE_TOPIC, jsonBuffer);
 }
 
-void messageHandler(char* topic, byte* payload, unsigned int length) {
-  Serial.print("incoming: ");
-  Serial.println(topic);
+// void messageHandler(char* topic, byte* payload, unsigned int length) {
+//   Serial.print("incoming: ");
+//   Serial.println(topic);
 
-  StaticJsonDocument<200> doc;
-  deserializeJson(doc, payload);
-  const char* message = doc["message"];
-  Serial.println(message);
-}
+//   StaticJsonDocument<200> doc;
+//   deserializeJson(doc, payload);
+//   const char* message = doc["message"];
+//   Serial.println(message);
+// }
 
 float FILTER(float input, float buffer_b[], float buffer_a[], int counter) {
   float FILTERED_DATA;
@@ -342,6 +361,85 @@ void IRAM_ATTR isr() {
   }
 }
 
+// void checkWiFiConnection() {
+//   if (WiFi.status() != WL_CONNECTED) {
+//     Serial.println("Attempting WiFi connection...");
+//     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+//   }
+// }
+
+// void checkMQTTConnection() {
+//   if (WiFi.status() == WL_CONNECTED && !client.connected()) {
+//     Serial.println("Attempting MQTT connection...");
+//     if (client.connect(THINGNAME)) {
+//       Serial.println("MQTT connected");
+//       publishFromQueue();  // Try to publish any queued messages
+//     }
+//   }
+// }
+
+void callback(char* topic, byte* payload, unsigned int length) {
+  // Handle incoming ACK messages
+  // if (strcmp(topic, AWS_IOT_SUBSCRIBE_TOPIC) == 0) {
+  // Parse the JSON payload
+  StaticJsonDocument<2000> docsub;
+  deserializeJson(docsub, payload);
+
+  // Extract the "event_timestamp" field
+  const char* eventTimestamp = docsub["event_timestamp"];
+
+  // Serial.println(eventTimestamp);
+  // Serial.println(getTime_str.c_str());
+  // Compare the extracted event timestamp with the one you sent
+  if (strcmp(eventTimestamp, getTime_str.c_str()) == 0) {
+    if (!messageQueue.empty() && messageQueue.front().indexOf(eventTimestamp) > -1) {
+      messageQueue.pop();
+    }
+  } else {
+    if (!isTimestampInQueue(eventTimestamp)) {
+      String jsonPayload;
+      serializeJson(docsub, jsonPayload);
+      messageQueue.push(jsonPayload);
+    }
+  }
+  // }
+}
+
+bool isTimestampInQueue(const String& timestamp) {
+  std::queue<String> tempQueue = messageQueue;
+  while (!tempQueue.empty()) {
+    String message = tempQueue.front();
+    tempQueue.pop();
+
+    StaticJsonDocument<2000> doc;
+    deserializeJson(doc, message);
+    const char* queueTimestamp = doc["event_timestamp"];
+    if (timestamp == queueTimestamp) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void resendMessagesFromQueue() {
+  if (!messageQueue.empty()) {
+    String message = messageQueue.front();
+    if (message != lastSentMessage && message != secondLastSentMessage) {
+      if (client.publish(AWS_IOT_PUBLISH_TOPIC, message.c_str())) {
+        Serial.println("Resent message successfully");
+
+        // Update the last two sent messages
+        secondLastSentMessage = lastSentMessage;
+        lastSentMessage = message;
+
+        messageQueue.pop();
+      }
+    } else {
+      messageQueue.pop();
+    }
+  }
+}
+
 void setup() {
   Serial.begin(230400);
   client.setBufferSize(4096);
@@ -354,13 +452,7 @@ void setup() {
   Wire.write(0x6B);                  // Talk to the register 6B
   Wire.write(0);                     // Make reset - place a 0 into the 6B register
   Wire.endTransmission(true);        //end the transmission
-                                     // Call this function if you need to get the IMU error values for your module
-                                     // calculate_IMU_error();
-                                     // SerialBT.begin("ESP32test");  //Bluetooth device name
-                                     // for (int i = 0; i <= FILTER_ORDER; i++) {
-                                     //   BUFFER_A[i] = 0;
-                                     //   BUFFER_B[i] = 0;
-                                     // }
+
   Wire.beginTransmission(MPU_ADDR);  // Start communication with MPU6050 // MPU=0x68
   Wire.write(0x1B);                  // Talk to register GYRO_CONFIG
   Wire.write(0x08);                  // Set gyroscope range +- 500 deg/s
@@ -375,10 +467,14 @@ void setup() {
   delay(20);
   WiFi.mode(WIFI_STA);
 
-  WiFi.onEvent(WiFiStationConnected, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_CONNECTED);
-  WiFi.onEvent(WiFiStationDisconnected, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+  // WiFi.onEvent(WiFiStationConnected, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_CONNECTED);
+  // WiFi.onEvent(WiFiStationDisconnected, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   connectAWS();
+
+  // Setup timers
+  // wifiReconnectTimer.attach(1, checkWiFiConnection);  // Check WiFi every 10 seconds
+  // mqttReconnectTimer.attach(1, checkMQTTConnection);  // Check MQTT every 10 seconds
 }
 
 // void loop(){}
@@ -387,14 +483,20 @@ void loop() {
     calculate_IMU_error(&AccOffsetX, &AccOffsetY, &AccOffsetZ, &GyroOffsetX, &GyroOffsetY, &GyroOffsetZ);
     flag_isr = 0;
   }
-  // if (WiFi.status() != WL_CONNECTED) {
-  //   Serial.println("Trying to Reconnect");
-  //   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  // }
-  if (!client.connected()) {
+
+  unsigned long now = millis();
+  if ((!client.connected()) && (now - lastReconnect > 50)) {
+    if (WiFi.status() != WL_CONNECTED) {
+      Serial.println("Trying to Reconnect");
+      WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    }
+    lastReconnect = millis();
     reconnectAWS();
   }
+
   if (millis() - last >= intervalMPU) {
+    client.loop();
+    resendMessagesFromQueue();
     // === Read acceleromter data === //
     Wire.beginTransmission(MPU_ADDR);
     Wire.write(0x3B);  // Start with register 0x3B (ACCEL_XOUT_H)
@@ -405,8 +507,8 @@ void loop() {
     AccY = ((Wire.read() << 8) | (Wire.read()));  // Y-axis value
     AccZ = ((Wire.read() << 8) | (Wire.read()));  // Z-axis value
     //Normalisasi Raw Data tersebut  Ref: 9.8036
-    NormAccX = (AccX * rangeAcc) * 9.80665f - 0.3094;
-    NormAccY = (AccY * rangeAcc) * 9.80665f + 0.2234;
+    NormAccX = -(AccX * rangeAcc) * 9.80665f - 0.3094;
+    NormAccY = -(AccY * rangeAcc) * 9.80665f + 0.2234;
     NormAccZ = (AccZ * rangeAcc) * 9.80665f - 0.9274;
     // NormAccX = (AccX * rangeAcc) * 9.80665f - AccOffsetX;
     // NormAccY = (AccY * rangeAcc) * 9.80665f - AccOffsetY;
@@ -421,9 +523,9 @@ void loop() {
     GyroY = ((Wire.read() << 8) | (Wire.read()));  // Y-axis value
     GyroZ = ((Wire.read() << 8) | (Wire.read()));  // Z-axis value
     // Correct the outputs with the calculated error values
-    NormGyroX = (GyroX * rangeGyro) + 1.0229;  // GyroErrorX ~(-0.56)
-    NormGyroY = (GyroY * rangeGyro) + 2.7209;  // GyroErrorY ~(2)
-    NormGyroZ = (GyroZ * rangeGyro) - 1.0408;  // GyroErrorZ ~ (-0.8)
+    NormGyroX = -(GyroX * rangeGyro) + 1.0229;  // GyroErrorX ~(-0.56)
+    NormGyroY = -(GyroY * rangeGyro) + 2.7209;  // GyroErrorY ~(2)
+    NormGyroZ = -(GyroZ * rangeGyro) - 1.0408;  // GyroErrorZ ~ (-0.8)
     // NormGyroX = (GyroX * rangeGyro) - GyroOffsetX;  // GyroErrorX ~(-0.56)
     // NormGyroY = (GyroY * rangeGyro) - GyroOffsetY;  // GyroErrorY ~(2)
     // NormGyroZ = (GyroZ * rangeGyro) - GyroOffsetX;  // GyroErrorZ ~ (-0.8)
@@ -521,10 +623,10 @@ void loop() {
       stdev_GyroX = get_stdev(Array_GyroX, avg_GyroX, DataCount);
       stdev_GyroY = get_stdev(Array_GyroY, avg_GyroY, DataCount);
       stdev_GyroZ = get_stdev(Array_GyroZ, avg_GyroZ, DataCount);
-      if (avg_AccX < 5.0f || DataCount <= 3) {
-        Start = 2;
-        StrideChange = 2;
-      }
+      // if (avg_AccX < 5.0f || DataCount <= 3) {
+      //   Start = 2;
+      //   StrideChange = 2;
+      // }
       // Normalisasi data
       avg_AccX = (avg_AccX - MEAN_SCALER[0]) / STD_SCALER[0];
       avg_AccY = (avg_AccY - MEAN_SCALER[1]) / STD_SCALER[1];
@@ -552,7 +654,6 @@ void loop() {
       stdev_GyroZ = (stdev_GyroZ - MEAN_SCALER[23]) / STD_SCALER[23];
       // DEBUG_PRINT();
       publishMessage();
-      client.loop();
       DataCount = 0;
       RESET_DATA();
       DataProcess = 0;
