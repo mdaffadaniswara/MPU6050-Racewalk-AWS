@@ -5,6 +5,8 @@
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include <WiFi.h>
+#include <queue>
+#include <Ticker.h>
 
 #define MPU_ADDR 0x68
 #define FILTER_ORDER 3
@@ -17,6 +19,8 @@ String getTime_str;
 
 WiFiClientSecure net = WiFiClientSecure();
 PubSubClient client(net);
+std::queue<String> messageQueue;
+
 
 uint32_t intervalMPU = 10;
 uint32_t last;
@@ -30,7 +34,7 @@ float avg_AccX, avg_AccY, avg_AccZ, avg_GyroX, avg_GyroY, avg_GyroZ;
 float max_AccX, max_AccY, max_AccZ, max_GyroX, max_GyroY, max_GyroZ;
 float min_AccX, min_AccY, min_AccZ, min_GyroX, min_GyroY, min_GyroZ;
 float stdev_AccX, stdev_AccY, stdev_AccZ, stdev_GyroX, stdev_GyroY, stdev_GyroZ;
-float Array_AccX[101], Array_AccY[101], Array_AccZ[101], Array_GyroX[101], Array_GyroY[101], Array_GyroZ[101];
+float Array_AccX[201], Array_AccY[201], Array_AccZ[201], Array_GyroX[201], Array_GyroY[201], Array_GyroZ[201];
 
 float StrideCheck1 = 500.0;
 float StrideCheck2 = 500.0;
@@ -39,8 +43,7 @@ int DataCount, DataProcess, DataStart = 0;
 int Start = 2;
 int StrideChange = 2;
 int MaxStop = 0;
-int DataThreshold = 35;
-int CheckLimit = 0;
+int DataThreshold = 38;
 
 float refG = 9.8037f;
 float rangeAcc = .0001220703125f;
@@ -74,9 +77,6 @@ void WiFiStationConnected(WiFiEvent_t event, WiFiEventInfo_t info) {
 }
 
 void WiFiStationDisconnected(WiFiEvent_t event, WiFiEventInfo_t info) {
-  // Serial.println("Disconnected from WiFi access point");
-  // Serial.print("WiFi lost connection. Reason: ");
-  // Serial.println(info.wifi_sta_disconnected.reason);
   Serial.println("Trying to Reconnect");
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   // wifiMulti.run();
@@ -154,6 +154,8 @@ void publishMessage() {
   doc["gyro_y_stdev"] = stdev_GyroY;
   doc["gyro_z_stdev"] = stdev_GyroZ;
   char jsonBuffer[4096];
+  serializeJson(doc, Serial);  // print to client
+  Serial.println();
   serializeJson(doc, jsonBuffer);  // print to client
 
   client.publish(AWS_IOT_PUBLISH_TOPIC, jsonBuffer);
@@ -255,6 +257,7 @@ void DEBUG_PRINT_MPU() {  // // ------PRINT TO serial---------
 }
 
 void DEBUG_PRINT() {
+  // Serial.print()
   Serial.print(avg_AccX);
   Serial.print(';');
   Serial.print(avg_AccY);
@@ -373,7 +376,7 @@ void setup() {
   WiFi.mode(WIFI_STA);
 
   WiFi.onEvent(WiFiStationConnected, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_CONNECTED);
-  // WiFi.onEvent(WiFiStationDisconnected, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+  WiFi.onEvent(WiFiStationDisconnected, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   connectAWS();
 }
@@ -384,10 +387,10 @@ void loop() {
     calculate_IMU_error(&AccOffsetX, &AccOffsetY, &AccOffsetZ, &GyroOffsetX, &GyroOffsetY, &GyroOffsetZ);
     flag_isr = 0;
   }
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("Trying to Reconnect");
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  }
+  // if (WiFi.status() != WL_CONNECTED) {
+  //   Serial.println("Trying to Reconnect");
+  //   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  // }
   if (!client.connected()) {
     reconnectAWS();
   }
@@ -437,6 +440,7 @@ void loop() {
       MaxCheck = max(MaxCheck, FilteredGyroZ);
       if (MaxCheck != FilteredGyroZ) {  //grafik sudah sampai maxima dan mulai turun
         Start = 0;
+        DataThreshold = 38;
       }
     }
     // Stride check by detecting local minima
@@ -456,7 +460,7 @@ void loop() {
       DataCount = DataCount + 1;
       if (DataCount > DataThreshold) {  // Atur hingga dirasa data sudah selalu turun terus
         StrideCheck2 = min(StrideCheck2, FilteredGyroZ);
-        if (StrideCheck2 != FilteredGyroZ) {
+        if (StrideCheck2 < FilteredGyroZ) {
           StrideCheck1 = 500.0;
           StrideChange = 0;
           DataProcess = 1;
@@ -469,31 +473,31 @@ void loop() {
       DataCount = DataCount + 1;
       if ((FilteredGyroZ >= 300.0) && (MaxStop == 0)) {
         MaxCheck = max(MaxCheck, FilteredGyroZ);
-        if (MaxCheck != FilteredGyroZ) {  //grafik sudah sampai maxima dan mulai turun
+        if (MaxCheck > FilteredGyroZ) {  //grafik sudah sampai maxima dan mulai turun
           DataThreshold = (DataCount + 8);
           MaxStop = 1;
-        } else if (DataCount > 50) {
-          RESET_DATA();
-          DataCount = 0;
-          DataThreshold = 35;
-          StrideChange = 2;
-          StrideCheck2 = 500.0;
-          MaxCheck = (-99.0);
-          Start = 2;
         }
       }
-      if ((MaxStop == 1) && (DataCount >= DataThreshold)) {
+      if ((MaxStop == 1) && (DataCount > DataThreshold)) {
         StrideCheck1 = min(StrideCheck1, FilteredGyroZ);
-        if (StrideCheck1 != FilteredGyroZ) {
+        if (StrideCheck1 < FilteredGyroZ) {
           StrideCheck2 = 500.0;
           MaxCheck = (-99.0);
-          MaxStop = 0;
           StrideChange = 1;
+          MaxStop = 0;
           DataProcess = 1;
         }
       }
+      if (DataCount >= 100) {
+        StrideCheck2 = 500.0;
+        MaxCheck = (-99.0);
+        MaxStop = 0;
+        DataCount = 0;
+        RESET_DATA();
+        Start = 2;
+        StrideChange = 2;
+      }
     }
-
     if (DataProcess == 1) {
       //Proses kirim data
       getTime = millis();
@@ -517,7 +521,7 @@ void loop() {
       stdev_GyroX = get_stdev(Array_GyroX, avg_GyroX, DataCount);
       stdev_GyroY = get_stdev(Array_GyroY, avg_GyroY, DataCount);
       stdev_GyroZ = get_stdev(Array_GyroZ, avg_GyroZ, DataCount);
-      if (avg_AccX < 5.0f){
+      if (avg_AccX < 5.0f || DataCount <= 3) {
         Start = 2;
         StrideChange = 2;
       }
