@@ -17,8 +17,8 @@ const int qos = 1;
 
 #define MPU_ADDR 0x68
 #define FILTER_ORDER 3
-const uint8_t button_PIN = 23;
-#define AWS_IOT_PUBLISH_TOPIC "RaceMate/1/datas"           // sesuaikan dengan yang di setting di AWS IOT CORE
+const uint8_t button_PIN = 33;
+#define AWS_IOT_PUBLISH_TOPIC "RaceMate/1/data"            // sesuaikan dengan yang di setting di AWS IOT CORE
 #define AWS_IOT_SUBSCRIBE_TOPIC "RaceMateSub/1/subscribe"  // sesuaikan dengan yang di setting di AWS IOT CORE
 String ID = "Athlete_01";
 unsigned long getTime;
@@ -32,9 +32,8 @@ String secondLastSentMessage = "";
 WiFiClientSecure net = WiFiClientSecure();
 PubSubClient client(net);
 std::queue<String> messageQueue;
-char jsonBuffer[4096];
 
-uint32_t lastReconnect;
+unsigned long lastReconnect;
 uint32_t intervalMPU = 10;
 uint32_t last;
 int16_t AccX, AccY, AccZ;
@@ -97,7 +96,7 @@ void WiFiStationDisconnected(WiFiEvent_t event, WiFiEventInfo_t info) {
 
 void reconnectAWS() {
   // Loop until we're reconnected
-  while (!client.connected()) {
+  if (!client.connected()) {
     Serial.println("Menghubungkan dengan AWS IOT Core");
     // Attempt to connect
     if (client.connect(THINGNAME)) {
@@ -166,14 +165,17 @@ void publishMessage() {
   doc["gyro_x_stdev"] = stdev_GyroX;
   doc["gyro_y_stdev"] = stdev_GyroY;
   doc["gyro_z_stdev"] = stdev_GyroZ;
+  char jsonBuffer[4096];
 
   serializeJson(doc, jsonBuffer);  // print to client
   Serial.println(jsonBuffer);
 
-  if (client.publish(AWS_IOT_PUBLISH_TOPIC, jsonBuffer)) {
-  } else {
-    messageQueue.push(jsonBuffer);
-  }  // Add message to the queue
+  client.publish(AWS_IOT_PUBLISH_TOPIC, jsonBuffer);
+
+  // if (client.publish(AWS_IOT_PUBLISH_TOPIC, jsonBuffer)) {
+  // } else {
+  //   messageQueue.push(jsonBuffer);
+  // }  // Add message to the queue
 
   // Try to publish from the queue
   // publishFromQueue();
@@ -388,7 +390,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
   // Extract the "event_timestamp" field
   const char* eventTimestamp = docsub["event_timestamp"];
 
-  // Serial.println(eventTimestamp);
+  Serial.println(eventTimestamp);
   // Serial.println(getTime_str.c_str());
   // Compare the extracted event timestamp with the one you sent
   if (strcmp(eventTimestamp, getTime_str.c_str()) == 0) {
@@ -485,7 +487,7 @@ void loop() {
   }
 
   unsigned long now = millis();
-  if ((!client.connected()) && (now - lastReconnect > 50)) {
+  if ((!client.connected()) && (now - lastReconnect > 1000)) {
     if (WiFi.status() != WL_CONNECTED) {
       Serial.println("Trying to Reconnect");
       WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -507,12 +509,12 @@ void loop() {
     AccY = ((Wire.read() << 8) | (Wire.read()));  // Y-axis value
     AccZ = ((Wire.read() << 8) | (Wire.read()));  // Z-axis value
     //Normalisasi Raw Data tersebut  Ref: 9.8036
-    NormAccX = -(AccX * rangeAcc) * 9.80665f - 0.3094;
-    NormAccY = -(AccY * rangeAcc) * 9.80665f + 0.2234;
-    NormAccZ = (AccZ * rangeAcc) * 9.80665f - 0.9274;
-    // NormAccX = (AccX * rangeAcc) * 9.80665f - AccOffsetX;
-    // NormAccY = (AccY * rangeAcc) * 9.80665f - AccOffsetY;
-    // NormAccZ = (AccZ * rangeAcc) * 9.80665f - AccOffsetZ;
+    // NormAccX = -(AccX * rangeAcc) * 9.80665f - 0.3094;
+    // NormAccY = -(AccY * rangeAcc) * 9.80665f + 0.2234;
+    // NormAccZ = (AccZ * rangeAcc) * 9.80665f - 0.9274;
+    NormAccX = -(AccX * rangeAcc) * 9.80665f - AccOffsetX;
+    NormAccY = -(AccY * rangeAcc) * 9.80665f - AccOffsetY;
+    NormAccZ = (AccZ * rangeAcc) * 9.80665f - AccOffsetZ;
 
     Wire.beginTransmission(MPU_ADDR);
     Wire.write(0x43);  // Gyro data first register address 0x43
@@ -523,12 +525,12 @@ void loop() {
     GyroY = ((Wire.read() << 8) | (Wire.read()));  // Y-axis value
     GyroZ = ((Wire.read() << 8) | (Wire.read()));  // Z-axis value
     // Correct the outputs with the calculated error values
-    NormGyroX = -(GyroX * rangeGyro) + 1.0229;  // GyroErrorX ~(-0.56)
-    NormGyroY = -(GyroY * rangeGyro) + 2.7209;  // GyroErrorY ~(2)
-    NormGyroZ = -(GyroZ * rangeGyro) - 1.0408;  // GyroErrorZ ~ (-0.8)
-    // NormGyroX = (GyroX * rangeGyro) - GyroOffsetX;  // GyroErrorX ~(-0.56)
-    // NormGyroY = (GyroY * rangeGyro) - GyroOffsetY;  // GyroErrorY ~(2)
-    // NormGyroZ = (GyroZ * rangeGyro) - GyroOffsetX;  // GyroErrorZ ~ (-0.8)
+    // NormGyroX = -(GyroX * rangeGyro) + 1.0229;  // GyroErrorX ~(-0.56)
+    // NormGyroY = -(GyroY * rangeGyro) + 2.7209;  // GyroErrorY ~(2)
+    // NormGyroZ = -(GyroZ * rangeGyro) - 1.0408;  // GyroErrorZ ~ (-0.8)
+    NormGyroX = -(GyroX * rangeGyro) - GyroOffsetX;  // GyroErrorX ~(-0.56)
+    NormGyroY = -(GyroY * rangeGyro) - GyroOffsetY;  // GyroErrorY ~(2)
+    NormGyroZ = (GyroZ * rangeGyro) - GyroOffsetX;  // GyroErrorZ ~ (-0.8)
 
     FilteredAccX = FILTER(NormAccX, BUFFER_B_acc_x, BUFFER_A_acc_x, counter);
     FilteredAccY = FILTER(NormAccY, BUFFER_B_acc_y, BUFFER_A_acc_y, counter);
@@ -652,7 +654,7 @@ void loop() {
       stdev_GyroX = (stdev_GyroX - MEAN_SCALER[21]) / STD_SCALER[21];
       stdev_GyroY = (stdev_GyroY - MEAN_SCALER[22]) / STD_SCALER[22];
       stdev_GyroZ = (stdev_GyroZ - MEAN_SCALER[23]) / STD_SCALER[23];
-      // DEBUG_PRINT();
+      DEBUG_PRINT();
       publishMessage();
       DataCount = 0;
       RESET_DATA();
@@ -690,8 +692,8 @@ void calculate_IMU_error(float* AccOffsetX, float* AccOffsetY, float* AccOffsetZ
     AccY = ((Wire.read() << 8) | (Wire.read()));  // Y-axis value
     AccZ = ((Wire.read() << 8) | (Wire.read()));  // Z-axis value
     //Normalisasi Raw Data tersebut
-    NormAccX = (AccX * rangeAcc) * 9.80665f;
-    NormAccY = (AccY * rangeAcc) * 9.80665f;
+    NormAccX = -(AccX * rangeAcc) * 9.80665f;
+    NormAccY = -(AccY * rangeAcc) * 9.80665f;
     NormAccZ = (AccZ * rangeAcc) * 9.80665f;
     // Sum all readings
     AccErrorX = AccErrorX + NormAccX;
@@ -722,9 +724,9 @@ void calculate_IMU_error(float* AccOffsetX, float* AccOffsetY, float* AccOffsetZ
     GyroY = ((Wire.read() << 8) | (Wire.read()));
     GyroZ = ((Wire.read() << 8) | (Wire.read()));
     // Sum all readings
-    NormGyroX = GyroX * rangeGyro;
-    NormGyroY = GyroY * rangeGyro;
-    NormGyroZ = GyroZ * rangeGyro;
+    NormGyroX = -(GyroX * rangeGyro);
+    NormGyroY = -(GyroY * rangeGyro);
+    NormGyroZ = (GyroZ * rangeGyro);
     GyroErrorX = GyroErrorX + NormGyroX;
     GyroErrorY = GyroErrorY + NormGyroY;
     GyroErrorZ = GyroErrorZ + NormGyroZ;
