@@ -18,9 +18,9 @@ const int qos = 1;
 #define MPU_ADDR 0x68
 #define FILTER_ORDER 3
 const uint8_t button_PIN = 33;
-#define AWS_IOT_PUBLISH_TOPIC "RaceMate/1/data"            // sesuaikan dengan yang di setting di AWS IOT CORE
+#define AWS_IOT_PUBLISH_TOPIC "RaceMate/2/data"            // sesuaikan dengan yang di setting di AWS IOT CORE
 #define AWS_IOT_SUBSCRIBE_TOPIC "RaceMateSub/1/subscribe"  // sesuaikan dengan yang di setting di AWS IOT CORE
-String ID = "Athlete_01";
+String ID = "Athlete_02";
 unsigned long getTime;
 String getTime_str;
 
@@ -110,6 +110,16 @@ void reconnectAWS() {
       //   delay(5000);
     }
   }
+  StaticJsonDocument<200> doctemp;
+  String connected;
+  connected = ID + " Connected";
+  doctemp["Status"] = connected;
+  char jsonTemp[200];
+
+  serializeJson(doctemp, jsonTemp);  // print to client
+  Serial.println(jsonTemp);
+
+  client.publish(AWS_IOT_PUBLISH_TOPIC, jsonTemp);
 }
 
 void connectAWS() {
@@ -530,7 +540,7 @@ void loop() {
     // NormGyroZ = -(GyroZ * rangeGyro) - 1.0408;  // GyroErrorZ ~ (-0.8)
     NormGyroX = -(GyroX * rangeGyro) - GyroOffsetX;  // GyroErrorX ~(-0.56)
     NormGyroY = -(GyroY * rangeGyro) - GyroOffsetY;  // GyroErrorY ~(2)
-    NormGyroZ = (GyroZ * rangeGyro) - GyroOffsetX;  // GyroErrorZ ~ (-0.8)
+    NormGyroZ = (GyroZ * rangeGyro) - GyroOffsetX;   // GyroErrorZ ~ (-0.8)
 
     FilteredAccX = FILTER(NormAccX, BUFFER_B_acc_x, BUFFER_A_acc_x, counter);
     FilteredAccY = FILTER(NormAccY, BUFFER_B_acc_y, BUFFER_A_acc_y, counter);
@@ -654,7 +664,7 @@ void loop() {
       stdev_GyroX = (stdev_GyroX - MEAN_SCALER[21]) / STD_SCALER[21];
       stdev_GyroY = (stdev_GyroY - MEAN_SCALER[22]) / STD_SCALER[22];
       stdev_GyroZ = (stdev_GyroZ - MEAN_SCALER[23]) / STD_SCALER[23];
-      DEBUG_PRINT();
+      // DEBUG_PRINT();
       publishMessage();
       DataCount = 0;
       RESET_DATA();
